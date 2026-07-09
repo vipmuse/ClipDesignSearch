@@ -1,0 +1,40 @@
+# CLIP + LoRA 디자인/특허 특화 튜닝 설정
+
+model:
+  # 확정: MetaCLIP 2 (worldwide). AutoModel/AutoProcessor로 로드 (CLIPModel 아님).
+  # 로컬 다운로드본 사용 (scripts/download_model.py 로 받음). HF 재다운로드 없이 오프라인 학습 가능.
+  # 다른 모델 실험 시: "facebook/metaclip-2-worldwide-s16" 등 HF id로 바꾸면 됨.
+  model_id: "models/metaclip-2-worldwide-huge-quickgelu"
+  image_size: 224   # s16-384 / huge-378 사용 시 384로 변경
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  # attention 투영층 대상. mlp(fc1,fc2) / projection 추가 시 표현력↑, 파라미터↑
+  target_modules: ["q_proj", "k_proj", "v_proj", "out_proj"]
+  # 이미지·텍스트 인코더 모두 튜닝
+  apply_to_vision: true
+  apply_to_text: true
+  # 임베딩 공간 정렬을 위해 projection도 학습하려면 true
+  train_projections: false
+
+train:
+  data_path: "data/pairs.jsonl"
+  output_dir: "outputs/lora-clip-design"
+  epochs: 10
+  # batch 64는 ViT-H에서 peak 37.5GB로 32GB VRAM 초과→스필로 53배 느림. batch 32(peak 23GB)가 최적.
+  batch_size: 32
+  grad_accum: 1
+  lr_lora: 2.0e-4
+  lr_logit_scale: 1.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  precision: "bf16"          # bf16 | fp16 | fp32
+  num_workers: 4
+  seed: 42
+  # 양방향 검색(텍스트→도면 + 도면→도면) 확정 → img2img loss 활성.
+  # 이미지↔이미지(같은 design_id) supervised contrastive loss 가중치. 0이면 순수 CLIP loss
+  img2img_weight: 0.5
+  eval_ratio: 0.1            # 홀드아웃 평가 비율
+  log_every: 20

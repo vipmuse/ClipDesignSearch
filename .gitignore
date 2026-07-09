@@ -1,0 +1,12 @@
+# 가상환경 / 모델 가중치 / 산출물 — 소스 저장소에 커밋하지 않음
+.venv/
+models/
+outputs/
+data/imgs/
+# 94MB, build_pairs.py로 재생성 가능 (GitHub 용량 제한)
+data/pairs.jsonl
+__pycache__/
+*.pyc
+.cache/
+# 개인 로컬 설정(settings.local.json 등)
+.claude/

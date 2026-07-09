@@ -1,0 +1,994 @@
+{
+ "classes": {
+  "01": {
+   "en": "Foodstuffs",
+   "ko": "식품"
+  },
+  "02": {
+   "en": "Articles Of Clothing And Haberdashery",
+   "ko": "의류 및 잡화류"
+  },
+  "03": {
+   "en": "Travel Goods, Cases, Parasols And Personal Belongings, Not Elsewhere Specified",
+   "ko": "다른 류에 명기되지 아니하는 여행용품, 케이스, 파라솔 및 신변품"
+  },
+  "04": {
+   "en": "Brushware",
+   "ko": "브러시 제품"
+  },
+  "05": {
+   "en": "Textile Piecegoods, Artificial And Natural Sheet Material",
+   "ko": "섬유 제품, 인조 및 천연 시트직물류"
+  },
+  "06": {
+   "en": "Furnishing",
+   "ko": "가구 및 침구류"
+  },
+  "07": {
+   "en": "Household Goods, Not Elsewhere Specified",
+   "ko": "다른 류에 명기되지 아니하는 가정용품"
+  },
+  "08": {
+   "en": "Tools And Hardware",
+   "ko": "공구 및 철물류"
+  },
+  "09": {
+   "en": "Packages And Containers For The Transport Or Handling Of Goods",
+   "ko": "물품 운송·처리용 포장 및 용기"
+  },
+  "10": {
+   "en": "Clocks And Watches And Other Measuring Instruments, Checking And Signalling Instruments",
+   "ko": "시계, 휴대용시계, 그 밖의 계측기구, 검사기구 및 신호기구"
+  },
+  "11": {
+   "en": "Articles Of Adornment",
+   "ko": "장식용품"
+  },
+  "12": {
+   "en": "Means Of Transport Or Hoisting",
+   "ko": "운송 또는 승강 수단"
+  },
+  "13": {
+   "en": "Equipment For Production, Distribution Or Transformation Of Electricity",
+   "ko": "전기의 발전, 공급 또는 변류를 위한 장치"
+  },
+  "14": {
+   "en": "Recording, Communication Or Information Retrieval Equipment",
+   "ko": "저장, 통신 또는 정보검색 장치"
+  },
+  "15": {
+   "en": "Machines, Not Elsewhere Specified",
+   "ko": "다른 류에 명기되지 아니하는 기계"
+  },
+  "16": {
+   "en": "Photographic, Cinematographic And Optical Apparatus",
+   "ko": "사진촬영기, 영상촬영기 및 광학기기"
+  },
+  "17": {
+   "en": "Musical Instruments",
+   "ko": "악기"
+  },
+  "18": {
+   "en": "Printing And Office Machinery",
+   "ko": "인쇄 및 사무용 기계"
+  },
+  "19": {
+   "en": "Stationery And Office Equipment, Artists’ And Teaching Materials",
+   "ko": "문방구, 사무용품, 미술재료, 교재"
+  },
+  "20": {
+   "en": "Sales And Advertising Equipment, Signs",
+   "ko": "판매 및 광고장치, 표지판"
+  },
+  "21": {
+   "en": "Games, Toys, Tents And Sports Goods",
+   "ko": "게임, 완구, 텐트 및 스포츠용품"
+  },
+  "22": {
+   "en": "Arms, Pyrotechnic Articles, Articles For Hunting, Fishing And Pest Killing",
+   "ko": "무기, 화약제품, 사냥, 낚시 및 살충 용품"
+  },
+  "23": {
+   "en": "Fluid Distribution Equipment, Sanitary, Heating, Ventilation And Air-Conditioning Equipment,",
+   "ko": "유체공급기, 위생, 난방, 환기 및 공기조절기, 고체연료"
+  },
+  "24": {
+   "en": "Medical And Laboratory Equipment",
+   "ko": "의료 및 실험실용 기구"
+  },
+  "25": {
+   "en": "Building Units And Construction Elements",
+   "ko": "건축 유닛 및 건설 자재"
+  },
+  "26": {
+   "en": "Lighting Apparatus",
+   "ko": "조명기기"
+  },
+  "27": {
+   "en": "Tobacco And Smokers’ Supplies",
+   "ko": "담배 및 흡연용품"
+  },
+  "28": {
+   "en": "Pharmaceutical And Cosmetic Products, Toilet Articles And Apparatus",
+   "ko": "의약품 및 화장품, 욕실·미용용품 및 기기"
+  },
+  "29": {
+   "en": "Devices And Equipment Against Fire Hazards, For Accident Prevention And For Rescue",
+   "ko": "소방, 사고방지 및 구조용 장치 및 기구"
+  },
+  "30": {
+   "en": "Articles For The Care And Handling Of Animals",
+   "ko": "동물 보호 및 사육용품"
+  },
+  "31": {
+   "en": "Machines And Appliances For Preparing Food Or Drink, Not Elsewhere Specified",
+   "ko": "다른 류에 명기되지 않는 음식 또는 음료조리용 기계 및 기기"
+  },
+  "32": {
+   "en": "Graphic Symbols And Logos, Surface Patterns, Ornamentation",
+   "ko": "그래픽 심벌, 로고, 표면 문양 및 장식"
+  }
+ },
+ "subclasses": {
+  "01-01": {
+   "en": "Bakers’ Products, Biscuits, Pastry, Macaroni And Other Cereal Products, Chocolates, Confectionery, Ices",
+   "ko": "빵, 비스킷, 패스트리, 마카로니, 그 밖의 가공곡물, 초콜릿, 과자류, 빙과류"
+  },
+  "01-02": {
+   "en": "Fruit And Vegetables",
+   "ko": "과일, 야채"
+  },
+  "01-03": {
+   "en": "Cheeses, Butter And Butter Substitutes, Other Dairy Produce",
+   "ko": "치즈, 버터 및 버터대용품, 그 밖의 유제품"
+  },
+  "01-04": {
+   "en": "Butchers’ Meat (Including Pork Products), Fish",
+   "ko": "육류(돼지고기제품포함), 생선"
+  },
+  "01-06": {
+   "en": "Animal Foodstuffs",
+   "ko": "동물용 사료"
+  },
+  "01-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 식품"
+  },
+  "02-01": {
+   "en": "Undergarments, Lingerie, Corsets, Brassières, Nightwear",
+   "ko": "내의, 란제리, 코르셋, 브래지어, 잠옷"
+  },
+  "02-02": {
+   "en": "Garments",
+   "ko": "의류"
+  },
+  "02-03": {
+   "en": "Headwear",
+   "ko": "모자류"
+  },
+  "02-04": {
+   "en": "Footwear, Socks And Stockings",
+   "ko": "신발류, 양말 및 스타킹"
+  },
+  "02-05": {
+   "en": "Neckties, Scarves, Neckerchiefs And Handkerchiefs",
+   "ko": "넥타이, 스카프, 목도리 및 손수건"
+  },
+  "02-06": {
+   "en": "Gloves",
+   "ko": "장갑"
+  },
+  "02-07": {
+   "en": "Haberdashery And Clothing Accessories",
+   "ko": "잡화류 및 의류 액세서리"
+  },
+  "02-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 의류 및 잡화류"
+  },
+  "03-01": {
+   "en": "Trunks, Suitcases, Briefcases, Handbags, Keyholders, Cases Specially Designed For Their Contents, Wallets And Similar Articles",
+   "ko": "트렁크, 여행가방, 서류가방, 핸드백, 키홀더, 제품 전용 케이스, 지갑 및 유사"
+  },
+  "03-03": {
+   "en": "Umbrellas, Parasols, Sunshades And Walking Sticks",
+   "ko": "우산, 파라솔, 차양 및 지팡이"
+  },
+  "03-04": {
+   "en": "Fans",
+   "ko": "부채"
+  },
+  "03-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의다른류에명기되지아니하는여행용품, 케이스, 파라솔및신변품"
+  },
+  "04-01": {
+   "en": "Brushes And Brooms For Cleaning",
+   "ko": "청소용 브러시 및 빗자루"
+  },
+  "04-02": {
+   "en": "Toilet Brushes, Clothes Brushes And Shoe Brushes",
+   "ko": "욕실용 브러시, 의류용 브러시, 신발용 브러시"
+  },
+  "04-03": {
+   "en": "Brushes For Machines",
+   "ko": "기계용 브러시"
+  },
+  "04-04": {
+   "en": "Paintbrushes, Brushes For Use In Cooking",
+   "ko": "미술용 브러시, 조리용 브러시"
+  },
+  "04-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 브러시 제품"
+  },
+  "05-01": {
+   "en": "Spun Articles",
+   "ko": "방사 제품(SPUN ARTICLES)"
+  },
+  "05-02": {
+   "en": "Lace",
+   "ko": "레이스"
+  },
+  "05-03": {
+   "en": "Embroidery",
+   "ko": "자수"
+  },
+  "05-04": {
+   "en": "Ribbons, Braids And Other Decorative Trimmings",
+   "ko": "리본, 장식용끈, 그밖의장식용트리밍"
+  },
+  "05-05": {
+   "en": "Textile Fabrics",
+   "ko": "직물지"
+  },
+  "05-06": {
+   "en": "Artificial Or Natural Sheet Material",
+   "ko": "인조또는천연시트직물등"
+  },
+  "05-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의섬유제품, 인조및천연시트류"
+  },
+  "06-01": {
+   "en": "Seats",
+   "ko": "의자"
+  },
+  "06-02": {
+   "en": "Beds",
+   "ko": "침대"
+  },
+  "06-03": {
+   "en": "Tables And Similar Furniture",
+   "ko": "테이블 및 유사가구"
+  },
+  "06-04": {
+   "en": "Storage Furniture",
+   "ko": "수납 가구"
+  },
+  "06-05": {
+   "en": "Composite Furniture",
+   "ko": "조합가구"
+  },
+  "06-06": {
+   "en": "Other Furniture And Furniture Parts",
+   "ko": "그밖의가구및가구부품"
+  },
+  "06-07": {
+   "en": "Mirrors And Frames",
+   "ko": "거울 및 프레임"
+  },
+  "06-08": {
+   "en": "Clothes Hangers",
+   "ko": "의류걸이"
+  },
+  "06-09": {
+   "en": "Mattresses And Cushions",
+   "ko": "매트리스 및 쿠션"
+  },
+  "06-10": {
+   "en": "Curtains And Indoor Blinds",
+   "ko": "커튼 및 실내 블라인드"
+  },
+  "06-11": {
+   "en": "Carpets, Mats And Rugs",
+   "ko": "양탄자, 매트 및 융단"
+  },
+  "06-12": {
+   "en": "Tapestries",
+   "ko": "태피스트리"
+  },
+  "06-13": {
+   "en": "Blankets And Other Covering Materials, Household Linen And Napery",
+   "ko": "담요및그밖의커버용직물 , 가정용린넨제품 ( H O U S E H O L D L I N E N N A P E R Y )"
+  },
+  "06-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 가구 및 침구류"
+  },
+  "07-01": {
+   "en": "China, Glassware, Dishes And Other Articles Of A Similar Nature",
+   "ko": "도자기, 유리제품, 접시 및 유사한 물품"
+  },
+  "07-02": {
+   "en": "Cooking Appliances, Utensils And Containers",
+   "ko": "조리용 용기, 조리용구 및 기구"
+  },
+  "07-03": {
+   "en": "Table Knives, Forks And Spoons",
+   "ko": "테이블 나이프, 포크, 스푼"
+  },
+  "07-04": {
+   "en": "Appliances And Utensils, Hand-Manipulated, For Preparing Food Or Drink",
+   "ko": "음식조리용 수동용구 및 기구"
+  },
+  "07-05": {
+   "en": "Flatirons And Washing, Cleaning And Drying Equipment",
+   "ko": "다림용 인두, 세탁 ․ 청소 및 건조기구"
+  },
+  "07-06": {
+   "en": "Other Table Utensils",
+   "ko": "그 밖의 식탁용구"
+  },
+  "07-07": {
+   "en": "Other Household Receptacles",
+   "ko": "그 밖의 가정용 용기"
+  },
+  "07-08": {
+   "en": "Fireplace Implements",
+   "ko": "벽난로용 기구"
+  },
+  "07-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 가정용품"
+  },
+  "08-01": {
+   "en": "Tools And Implements For Drilling, Milling Or Digging",
+   "ko": "천공, 절삭, 또는 채굴용 공구 및 기구"
+  },
+  "08-02": {
+   "en": "Hammers And Other Similar Tools And Implements",
+   "ko": "망치및그밖의유사한공구및기구"
+  },
+  "08-03": {
+   "en": "Cutting Tools And Implements",
+   "ko": "절단용 공구 및 기구"
+  },
+  "08-04": {
+   "en": "Screwdrivers And Other Similar Tools And Implements",
+   "ko": "스크루드라이버및그밖의유사한공구와기구"
+  },
+  "08-05": {
+   "en": "Other Tools And Implements",
+   "ko": "그 밖의 공구 및 기구"
+  },
+  "08-06": {
+   "en": "Handles, Knobs And Hinges",
+   "ko": "핸들, 손잡이, 경첩"
+  },
+  "08-07": {
+   "en": "Locking Or Closing Devices",
+   "ko": "잠금장치"
+  },
+  "08-08": {
+   "en": "Fastening, Supporting Or Mounting Devices Not Included In Other Classes",
+   "ko": "다른류에포함되지않는고정장치또는지지장치"
+  },
+  "08-09": {
+   "en": "Metal Fittings And Mountings For Doors, Windows And Furniture, And Similar Articles",
+   "ko": "문, 창, 가구 및 유사품의 금속부품 등"
+  },
+  "08-10": {
+   "en": "Bicycle And Motorcycle Racks",
+   "ko": "자전거와 오토바이용 랙"
+  },
+  "08-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 공구 및 철물류"
+  },
+  "09-01": {
+   "en": "Bottles, Flasks, Pots, Carboys, Demijohns, And Containers With Dynamic Dispensing Means",
+   "ko": "병, 플라스크, 포트, 대형유리병(CARBOYS), 목이가는대형유리병(DEMIJOHNS)"
+  },
+  "09-02": {
+   "en": "Storage Cans, Drums And Casks",
+   "ko": "저장용 캔, 드럼통 및 통(CASKS)"
+  },
+  "09-03": {
+   "en": "Boxes, Cases, Containers, (Preserve) Tins Or Cans",
+   "ko": "상자, 케이스, 컨테이너, (보존용) 캔 또는 깡통"
+  },
+  "09-04": {
+   "en": "Hampers, Crates And Baskets",
+   "ko": "광주리, 나무상자 및 바구니"
+  },
+  "09-05": {
+   "en": "Bags, Sachets, Tubes And Capsules",
+   "ko": "자루, 일회분 포장봉지(SACHETS), 튜브 및 캡슐"
+  },
+  "09-06": {
+   "en": "Ropes And Hooping Materials",
+   "ko": "로프 및 고정테(HOOPING MATERIALS)"
+  },
+  "09-07": {
+   "en": "Closing Means And Attachments",
+   "ko": "포장용 잠금장치 및 부속물품"
+  },
+  "09-08": {
+   "en": "Pallets And Platforms For Forklifts",
+   "ko": "지게차용 팔레트 및 작업대"
+  },
+  "09-09": {
+   "en": "Refuse And Trash Containers And Stands Therefor",
+   "ko": "폐품과 쓰레기통 및 스탠드형 쓰레기통"
+  },
+  "09-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의물품운송 ․ 처리용포장및용기"
+  },
+  "10-01": {
+   "en": "Clocks And Alarm Clocks",
+   "ko": "시계 및 알람시계"
+  },
+  "10-02": {
+   "en": "Watches And Wrist Watches",
+   "ko": "휴대용시계 및 손목시계"
+  },
+  "10-03": {
+   "en": "Other Time-Measuring Instruments",
+   "ko": "그 밖의 시간 측정기구"
+  },
+  "10-04": {
+   "en": "Other Measuring Instruments, Apparatus And Devices",
+   "ko": "그 밖의 계측도구, 기구 및 장치"
+  },
+  "10-05": {
+   "en": "Instruments, Apparatus And Devices For Checking, Security Or Testing",
+   "ko": "검사, 안전또는시험을위한도구, 기구및기기"
+  },
+  "10-06": {
+   "en": "Signalling Apparatus And Devices",
+   "ko": "신호기구 및 기기"
+  },
+  "10-07": {
+   "en": "Casings, Cases, Dials, Hands And All Other Parts And Accessories Of Instruments For Measuring, Checking And Signalling",
+   "ko": "케이싱, 케이스, 표시판, 시계바늘, 계측 ․ 검사및신호를위한기구의모든"
+  },
+  "10-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 시계, 손목시계, 계측기구, 검사기구 및 신호기구"
+  },
+  "11-01": {
+   "en": "Jewellery",
+   "ko": "보석"
+  },
+  "11-02": {
+   "en": "Trinkets, Table, Mantel And Wall Ornaments, Flower Vases And Pots",
+   "ko": "소형 장식품, 테이블 ․ 벽난로 ․ 벽 장식품, 화병 및 화분"
+  },
+  "11-03": {
+   "en": "Medals And Badges",
+   "ko": "메달 및 배지"
+  },
+  "11-04": {
+   "en": "Artificial Flowers, Fruit And Plants",
+   "ko": "조화, 모조과일 및 모조식물"
+  },
+  "11-05": {
+   "en": "Flags, Festive Decorations",
+   "ko": "깃발, 축제 장식물"
+  },
+  "11-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 장식용품"
+  },
+  "12-01": {
+   "en": "Vehicles Drawn By Animals",
+   "ko": "동물에 의해 움직이는 운송수단"
+  },
+  "12-02": {
+   "en": "Handcarts, Wheelbarrows",
+   "ko": "핸드카트, 일륜수레"
+  },
+  "12-03": {
+   "en": "Locomotives And Rolling Stock For Railways And All Other Rail Vehicles",
+   "ko": "기관차 및 철도용 차량"
+  },
+  "12-04": {
+   "en": "Telpher Carriers, Chair Lifts And Ski Lifts",
+   "ko": "공중 케이블 운반기, 스키장 리프트"
+  },
+  "12-05": {
+   "en": "Elevators And Hoists For Loading Or Conveying",
+   "ko": "화물 운송용 엘리베이터 및 기중기"
+  },
+  "12-06": {
+   "en": "Ships And Boats",
+   "ko": "선박 및 보트"
+  },
+  "12-07": {
+   "en": "Aircraft And Space Vehicles",
+   "ko": "항공기 및 우주선"
+  },
+  "12-08": {
+   "en": "Motor Cars, Buses And Lorries",
+   "ko": "자동차, 버스 및 화물자동차"
+  },
+  "12-09": {
+   "en": "Tractors",
+   "ko": "트랙터"
+  },
+  "12-10": {
+   "en": "Road Vehicle Trailers",
+   "ko": "차량용 트레일러"
+  },
+  "12-11": {
+   "en": "Cycles And Motorcycles",
+   "ko": "자전거 및 오토바이"
+  },
+  "12-12": {
+   "en": "Perambulators, Invalid Chairs, Stretchers",
+   "ko": "유모차, 휠체어, 들것"
+  },
+  "12-13": {
+   "en": "Special-Purpose Vehicles",
+   "ko": "특수목적 차량"
+  },
+  "12-14": {
+   "en": "Other Vehicles",
+   "ko": "그 밖의 차량"
+  },
+  "12-15": {
+   "en": "Tyres And Anti-Skid Chains For Vehicles",
+   "ko": "차량용 타이어 및 미끄럼방지용 체인"
+  },
+  "12-16": {
+   "en": "Parts, Equipment And Accessories For Vehicles, Not Included In Other Classes Or Subclasses",
+   "ko": "다른류나군에포함되지않는차량용구성품, 부품및부속품"
+  },
+  "12-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의운송또는승강수단"
+  },
+  "13-01": {
+   "en": "Generators And Motors",
+   "ko": "발전기 및 모터"
+  },
+  "13-02": {
+   "en": "Power Transformers, Rectifiers, Batteries And Accumulators",
+   "ko": "전력변압기, 정류기, 배터리 및 축전지"
+  },
+  "13-03": {
+   "en": "Equipment For Distribution Or Control Of Electric Power",
+   "ko": "전력 공급 및 제어기기"
+  },
+  "13-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의전기의발전, 공급또는변류를위한장치"
+  },
+  "14-01": {
+   "en": "Equipment For The Recording Or Reproduction Of Sounds Or Pictures",
+   "ko": "음향또는영상저장또는재생장치"
+  },
+  "14-02": {
+   "en": "Data Processing Equipment As Well As Peripheral Apparatus And Devices",
+   "ko": "데이터 처리장치 및 주변기기"
+  },
+  "14-03": {
+   "en": "Communications Equipment, Wireless Remote Controls And Radio Amplifiers",
+   "ko": "통신장치, 무선원격제어기기 및 고주파증폭기"
+  },
+  "14-04": {
+   "en": "Screen Displays And Icons",
+   "ko": "스크린 디스플레이 및 아이콘"
+  },
+  "14-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의저장, 통신또는정보검색장치"
+  },
+  "15-01": {
+   "en": "Engines",
+   "ko": "엔진"
+  },
+  "15-02": {
+   "en": "Pumps And Compressors",
+   "ko": "펌프 및 컴프레서"
+  },
+  "15-03": {
+   "en": "Agricultural Machinery",
+   "ko": "농업기계"
+  },
+  "15-04": {
+   "en": "Construction Machinery",
+   "ko": "건설기계"
+  },
+  "15-05": {
+   "en": "Washing, Cleaning And Drying Machines",
+   "ko": "세탁, 청소 및 건조용 기계"
+  },
+  "15-06": {
+   "en": "Textile, Sewing, Knitting And Embroidering Machines, Including Their Integral Parts",
+   "ko": "직물의 재봉, 편물 및 자수기계 및 구성부품"
+  },
+  "15-07": {
+   "en": "Refrigeration Machinery And Apparatus",
+   "ko": "냉장기계 및 기기"
+  },
+  "15-09": {
+   "en": "Machine Tools, Abrading And Founding Machinery",
+   "ko": "공작기계, 연마기 및 주조기"
+  },
+  "15-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의다른류에포함되지아니하는기계"
+  },
+  "16-01": {
+   "en": "Photographic Cameras And Film Cameras",
+   "ko": "사진촬영기 및 영상촬영기"
+  },
+  "16-02": {
+   "en": "Projectors And Viewers",
+   "ko": "프로젝터 및 뷰어"
+  },
+  "16-03": {
+   "en": "Photocopying Apparatus And Enlargers",
+   "ko": "복사기 및 확대기"
+  },
+  "16-04": {
+   "en": "Developing Apparatus And Equipment",
+   "ko": "현상장치 및 기기"
+  },
+  "16-05": {
+   "en": "Accessories",
+   "ko": "액세서리"
+  },
+  "16-06": {
+   "en": "Optical Articles",
+   "ko": "광학제품"
+  },
+  "16-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 사진촬영기, 영상촬영기 및 광학기기"
+  },
+  "17-01": {
+   "en": "Keyboard Instruments",
+   "ko": "건반악기"
+  },
+  "17-02": {
+   "en": "Wind Instruments",
+   "ko": "관악기"
+  },
+  "17-03": {
+   "en": "Stringed Instruments",
+   "ko": "현악기"
+  },
+  "17-04": {
+   "en": "Percussion Instruments",
+   "ko": "타악기"
+  },
+  "17-05": {
+   "en": "Mechanical Instruments",
+   "ko": "자동연주악기"
+  },
+  "17-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 악기"
+  },
+  "18-01": {
+   "en": "Typewriters And Calculating Machines",
+   "ko": "타자기 및 계산기"
+  },
+  "18-02": {
+   "en": "Printing Machines",
+   "ko": "인쇄기계"
+  },
+  "18-03": {
+   "en": "Type And Type Faces",
+   "ko": "활자 및 글자체"
+  },
+  "18-04": {
+   "en": "Bookbinding Machines, Printers’ Stapling Machines, Guillotines And Trimmers (For Bookbinding)",
+   "ko": "제본기, 인쇄기용 스테이플링기, 제본용 재단기 및 트리머"
+  },
+  "18-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의인쇄및사무용기계"
+  },
+  "19-01": {
+   "en": "Writing Paper, Cards For Correspondence And Announcements",
+   "ko": "필기용지, 서신 및 알림 카드"
+  },
+  "19-02": {
+   "en": "Office Equipment",
+   "ko": "사무용품"
+  },
+  "19-03": {
+   "en": "Calendars",
+   "ko": "달력"
+  },
+  "19-04": {
+   "en": "Books And Other Objects Of Similar Outward Appearance",
+   "ko": "서적및그밖의유사한외관을가진물품"
+  },
+  "19-06": {
+   "en": "Materials And Instruments For Writing By Hand, For Drawing, For Painting, For Sculpture, For Engraving And For Other Artistic Techniques",
+   "ko": "필기, 제도, 회화, 조각, 판화및그밖의미술기법을위한재료및기구"
+  },
+  "19-07": {
+   "en": "Teaching Materials",
+   "ko": "교재"
+  },
+  "19-08": {
+   "en": "Other Printed Matter",
+   "ko": "그 밖의 인쇄물"
+  },
+  "19-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 문방구, 사무용품, 미술재료, 교재"
+  },
+  "20-01": {
+   "en": "Automatic Vending Machines",
+   "ko": "자동판매기"
+  },
+  "20-02": {
+   "en": "Display And Sales Equipment",
+   "ko": "진열 및 판매용구"
+  },
+  "20-03": {
+   "en": "Signs, Signboards And Advertising Devices",
+   "ko": "표지판, 간판 및 광고용 장치"
+  },
+  "20-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 판매 및 광고장치, 표지판"
+  },
+  "21-01": {
+   "en": "Games And Toys",
+   "ko": "게임기 및 완구"
+  },
+  "21-02": {
+   "en": "Gymnastics And Sports Apparatus And Equipment",
+   "ko": "운동 ․ 스포츠 용구 및 기구"
+  },
+  "21-03": {
+   "en": "Other Amusement And Entertainment Articles",
+   "ko": "그 밖의 오락용품"
+  },
+  "21-04": {
+   "en": "Tents And Accessories Thereof",
+   "ko": "텐트 및 텐트 부속품"
+  },
+  "21-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 게임, 완구, 텐트 및 스포츠용품"
+  },
+  "22-01": {
+   "en": "Projectile Weapons",
+   "ko": "발사무기"
+  },
+  "22-02": {
+   "en": "Other Weapons",
+   "ko": "그 밖의 무기"
+  },
+  "22-03": {
+   "en": "Ammunition, Rockets And Pyrotechnic Articles",
+   "ko": "탄약, 로켓 및 화약제품"
+  },
+  "22-04": {
+   "en": "Targets And Accessories",
+   "ko": "과녁 및 부속품"
+  },
+  "22-05": {
+   "en": "Hunting And Fishing Equipment",
+   "ko": "사냥 및 낚시용품"
+  },
+  "22-06": {
+   "en": "Traps, Articles For Pest Killing",
+   "ko": "덫(올가미), 살충제품"
+  },
+  "22-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의무기및화약제품, 사냥및낚시용품, 살충제품"
+  },
+  "23-01": {
+   "en": "Fluid Distribution Equipment",
+   "ko": "유체공급기"
+  },
+  "23-02": {
+   "en": "Sanitary Appliances",
+   "ko": "위생설비용품"
+  },
+  "23-03": {
+   "en": "Heating Equipment",
+   "ko": "난방기기"
+  },
+  "23-04": {
+   "en": "Ventilation And Air-Conditioning Equipment",
+   "ko": "환기 및 공조기기"
+  },
+  "23-05": {
+   "en": "Solid Fuel",
+   "ko": "고체연료"
+  },
+  "23-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 유체공급기, 위생설비용품, 난방기기, 환기 및 공조기기, 고체연료"
+  },
+  "24-01": {
+   "en": "Apparatus And Equipment For Doctors, Hospitals And Laboratories",
+   "ko": "의사, 병원및실험실에사용되는기기및기구"
+  },
+  "24-02": {
+   "en": "Medical Instruments, Instruments And Tools For Laboratory Use",
+   "ko": "의료기구, 실험실용 기기 및 용구"
+  },
+  "24-03": {
+   "en": "Prosthetic Articles",
+   "ko": "의료용 보철용품"
+  },
+  "24-04": {
+   "en": "Materials For Dressing Wounds, Nursing And Medical Care",
+   "ko": "상처치료, 간호 및 의료용품"
+  },
+  "24-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의의료및실험실용기구"
+  },
+  "25-01": {
+   "en": "Building Materials",
+   "ko": "건축재료"
+  },
+  "25-02": {
+   "en": "Prefabricated Or Pre-Assembled Building Parts",
+   "ko": "조립식또는미리조립된건축부자재"
+  },
+  "25-03": {
+   "en": "Houses, Garages And Other Buildings",
+   "ko": "가옥, 창고 및 그 밖의 건축물"
+  },
+  "25-04": {
+   "en": "Steps, Ladders And Scaffolds",
+   "ko": "층계, 사다리 및 비계"
+  },
+  "25-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의건축유닛및부자재"
+  },
+  "26-01": {
+   "en": "Candlesticks And Candelabra",
+   "ko": "촛대 및 나뭇가지형 촛대"
+  },
+  "26-02": {
+   "en": "Torches And Hand Lamps And Lanterns",
+   "ko": "횃불, 손전등, 랜턴"
+  },
+  "26-03": {
+   "en": "Public Lighting Fixtures",
+   "ko": "공공조명기기"
+  },
+  "26-04": {
+   "en": "Luminous Sources, Electrical Or Not",
+   "ko": "전기식 또는 비전기식 발광체"
+  },
+  "26-05": {
+   "en": "Lamps, Standard Lamps, Chandeliers, Wall And Ceiling Fixtures, Lampshades, Reflectors, Photographic And Cinematographic Projector Lamps",
+   "ko": "램프, 표준램프, 샹들리에, 벽부착 및 천장부착등, 램프갓, 반사경, 사진 및"
+  },
+  "26-06": {
+   "en": "Luminous Devices For Vehicles",
+   "ko": "차량용 조명기기"
+  },
+  "26-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 조명기기"
+  },
+  "27-01": {
+   "en": "Tobacco, Cigars And Cigarettes",
+   "ko": "담배, 시가, 궐련"
+  },
+  "27-02": {
+   "en": "Pipes, Cigar And Cigarette Holders",
+   "ko": "파이프, 시가 및 궐련대"
+  },
+  "27-03": {
+   "en": "Ashtrays",
+   "ko": "재떨이"
+  },
+  "27-04": {
+   "en": "Matches",
+   "ko": "성냥"
+  },
+  "27-05": {
+   "en": "Lighters",
+   "ko": "라이터"
+  },
+  "27-06": {
+   "en": "Cigar Cases, Cigarette Cases, Tobacco Jars And Pouches",
+   "ko": "시가및궐련케이스, 담배단지및주머니"
+  },
+  "27-99": {
+   "en": "Miscellaneous",
+   "ko": "그 밖의 담배 및 흡연용품"
+  },
+  "28-01": {
+   "en": "Pharmaceutical Products",
+   "ko": "의약품"
+  },
+  "28-02": {
+   "en": "Cosmetic Products",
+   "ko": "화장품"
+  },
+  "28-03": {
+   "en": "Toilet Articles And Beauty Parlor Equipment",
+   "ko": "욕실용품 및 미용기구"
+  },
+  "28-04": {
+   "en": "Wigs, False Hairpieces",
+   "ko": "가발, 인조 부분가발"
+  },
+  "28-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의의약품및화장품, 욕실 ․ 미용용품및기기"
+  },
+  "29-01": {
+   "en": "Devices And Equipment Against Fire Hazards",
+   "ko": "소방장치 및 기구"
+  },
+  "29-02": {
+   "en": "Devices And Equipment For Accident Prevention And For Rescue, Not Elsewhere Specified",
+   "ko": "다른류에명기되지아니하는사고방지및구조용용품(기구)"
+  },
+  "29-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의소방, 사고방지및구조용장치및기구"
+  },
+  "30-01": {
+   "en": "Animal Clothing",
+   "ko": "동물용 의류"
+  },
+  "30-02": {
+   "en": "Pens, Cages, Kennels And Similar Shelters",
+   "ko": "동물 우리, 새장, 개집 및 유사한 물품"
+  },
+  "30-03": {
+   "en": "Feeders And Waterers",
+   "ko": "사료 및 물 공급기"
+  },
+  "30-04": {
+   "en": "Saddlery",
+   "ko": "마구"
+  },
+  "30-05": {
+   "en": "Whips And Prods",
+   "ko": "채찍 및 가축 몰이용 막대"
+  },
+  "30-06": {
+   "en": "Beds And Nests",
+   "ko": "침대 및 둥지"
+  },
+  "30-07": {
+   "en": "Perches And Other Cage Attachments",
+   "ko": "횃대 및 새장 부속품"
+  },
+  "30-08": {
+   "en": "Markers, Marks And Shackles",
+   "ko": "표식, 식별표 및 족쇄"
+  },
+  "30-09": {
+   "en": "Hitching Posts",
+   "ko": "말 등을 매는 말뚝"
+  },
+  "30-99": {
+   "en": "Miscellaneous",
+   "ko": "그밖의동물보호및사육용품"
+  },
+  "31-00": {
+   "en": "Machines And Appliances For Preparing Food Or Drink, Not Elsewhere Specified",
+   "ko": "다른류에명기되지아니하는음식또는음료조리용기계및기기"
+  },
+  "32-00": {
+   "en": "Graphic Symbols And Logos, Surface Patterns, Ornamentation",
+   "ko": "그래픽 심벌, 로고, 표면 문양 및 장식"
+  }
+ }
+}

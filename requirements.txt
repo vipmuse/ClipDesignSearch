@@ -1,0 +1,13 @@
+# RTX 5090(Blackwell/sm_120)은 CUDA 12.8 빌드 필수:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+torch>=2.7            # cu128 빌드 (Blackwell 지원)
+transformers>=4.52    # MetaCLIP 2 지원
+peft>=0.11
+accelerate
+huggingface_hub
+requests         # DeepPatent2 다운로더(Harvard Dataverse API)
+pillow
+pyyaml
+numpy
+faiss-cpu       # GPU면 faiss-gpu
+tqdm

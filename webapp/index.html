@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>디자인 유사도 검색</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
+    --text:#e7e9ee; --muted:#9aa3b2; --accent:#6c8cff; --accent2:#8a6cff;
+    --good:#3ddc97; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Malgun Gothic",sans-serif;}
+  .wrap{max-width:1100px;margin:0 auto;padding:32px 20px 80px}
+  header h1{font-size:26px;margin:0 0 6px;letter-spacing:-.02em}
+  header p{margin:0;color:var(--muted);font-size:14px}
+  .grid-top{display:grid;grid-template-columns:340px 1fr;gap:20px;margin-top:24px}
+  @media(max-width:760px){.grid-top{grid-template-columns:1fr}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)}
+  .uploader{padding:18px}
+  .drop{border:2px dashed var(--line);border-radius:12px;padding:26px 16px;text-align:center;
+    cursor:pointer;transition:.15s;background:var(--panel2)}
+  .drop:hover,.drop.drag{border-color:var(--accent);background:#20263400}
+  .drop.drag{background:rgba(108,140,255,.08)}
+  .drop svg{width:34px;height:34px;color:var(--muted);margin-bottom:8px}
+  .drop b{color:var(--text)} .drop span{color:var(--muted);font-size:13px;display:block;margin-top:4px}
+  .preview{margin-top:14px;text-align:center;display:none}
+  .preview img{max-width:100%;max-height:240px;border-radius:10px;background:#fff;border:1px solid var(--line)}
+  .row{display:flex;gap:10px;align-items:center;margin-top:14px}
+  button{font:inherit;border:0;border-radius:10px;padding:11px 16px;cursor:pointer;font-weight:600}
+  .btn{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;flex:1}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn-ghost{background:var(--panel2);color:var(--muted);border:1px solid var(--line)}
+  label.topk{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:8px;margin-top:12px}
+  select{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+
+  .results-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
+  .results-head h2{font-size:16px;margin:0}
+  .results-head .muted{color:var(--muted);font-size:13px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+  .item{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;
+    transition:.15s;position:relative}
+  .item:hover{transform:translateY(-3px);border-color:var(--accent)}
+  .thumb{aspect-ratio:1;background:#fff;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .thumb img{width:100%;height:100%;object-fit:contain}
+  .meta{padding:10px 11px}
+  .meta .title{font-size:13px;font-weight:600;line-height:1.3;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:34px}
+  .meta .sub{color:var(--muted);font-size:11px;margin-top:4px}
+  .bar{height:5px;background:var(--panel2);border-radius:4px;margin-top:8px;overflow:hidden}
+  .bar > i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--good))}
+  .rank{position:absolute;top:8px;left:8px;background:rgba(15,17,21,.8);color:#fff;font-size:11px;
+    padding:2px 7px;border-radius:20px;font-weight:700}
+  .score{position:absolute;top:8px;right:8px;background:rgba(61,220,151,.15);color:var(--good);
+    font-size:11px;padding:2px 7px;border-radius:20px;font-weight:700}
+  .meta .pno{font-size:11px;color:var(--accent);font-weight:700;margin-top:5px;font-variant-numeric:tabular-nums}
+  .thumb{position:relative;cursor:zoom-in}
+  .ndraw{position:absolute;bottom:6px;right:6px;background:rgba(15,17,21,.82);color:#fff;font-size:10px;
+    font-weight:700;padding:2px 7px;border-radius:20px;display:flex;align-items:center;gap:3px}
+
+  /* 모달(팝업) — 브라우저 새창 아님 */
+  .modal{position:fixed;inset:0;background:rgba(6,8,12,.72);backdrop-filter:blur(3px);
+    display:none;align-items:center;justify-content:center;z-index:50;padding:24px}
+  .modal.open{display:flex}
+  .modal-box{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    width:min(920px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden}
+  .modal-head{display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--line)}
+  .modal-head .mt{font-size:15px;font-weight:700;flex:1;line-height:1.3}
+  .modal-head .mno{font-size:12px;color:var(--accent);font-weight:700}
+  .modal-head .mcnt{font-size:12px;color:var(--muted)}
+  .modal-x{background:var(--panel2);border:1px solid var(--line);color:var(--muted);border-radius:8px;
+    width:32px;height:32px;cursor:pointer;font-size:16px;line-height:1}
+  .modal-x:hover{color:#fff;border-color:var(--accent)}
+  .modal-grid{padding:16px 18px;overflow-y:auto;display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+  .mfig{background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .mfig .mimg{aspect-ratio:1;background:#fff;display:flex;align-items:center;justify-content:center}
+  .mfig .mimg img{width:100%;height:100%;object-fit:contain}
+  .mfig .mcap{font-size:11px;color:var(--muted);padding:6px 8px;line-height:1.3}
+  .empty,.loading{color:var(--muted);text-align:center;padding:60px 0}
+  .spinner{width:26px;height:26px;border:3px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 12px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .chip{display:inline-block;background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+    font-size:10px;padding:1px 6px;border-radius:6px;margin-right:4px}
+
+  .searchbar{display:flex;gap:10px;margin-bottom:14px}
+  .searchbar input{flex:1;background:var(--panel);border:1px solid var(--line);color:var(--text);
+    border-radius:10px;padding:11px 14px;font:inherit;outline:none}
+  .searchbar input:focus{border-color:var(--accent)}
+  .searchbar .btn{flex:0 0 auto}
+  .predicted{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:12px 14px;margin-bottom:14px}
+  .predicted .plabel{color:var(--muted);font-size:12px;display:block;margin-bottom:8px}
+  .pchips{display:flex;flex-wrap:wrap;gap:8px}
+  .pchip{background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:5px 12px;
+    font-size:13px;cursor:pointer;transition:.15s;display:flex;align-items:center;gap:8px}
+  .pchip:hover{border-color:var(--accent);color:#fff}
+  .pchip .pct{color:var(--good);font-size:11px;font-weight:700}
+  .pchip.top{background:rgba(108,140,255,.12);border-color:var(--accent)}
+  .pchip.active{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-color:transparent}
+
+  .alpha{margin-top:14px}
+  .alpha-lbl{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+  .alpha-lbl #alphaVal{color:var(--accent);font-weight:600}
+  .alpha input[type=range]{width:100%;accent-color:var(--accent)}
+  .alpha-ends{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:2px}
+
+  .leftcol{display:flex;flex-direction:column;gap:16px}
+  .locpanel{padding:16px}
+  .loc-head{font-size:14px;font-weight:600;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+  .loc-head .muted{color:var(--muted);font-weight:400;font-size:12px}
+  .loc-list{display:flex;flex-direction:column;gap:9px}
+  .loc-row{position:relative;padding:7px 10px;border-radius:8px;background:var(--panel2);
+    border:1px solid var(--line);overflow:hidden;cursor:pointer;transition:.15s}
+  .loc-row:hover{border-color:var(--accent)}
+  .loc-row > .fill{position:absolute;inset:0 auto 0 0;background:rgba(108,140,255,.14);z-index:0}
+  .loc-row .lr{position:relative;z-index:1;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+  .loc-row .code{font-weight:700;font-size:12px;color:var(--accent);font-variant-numeric:tabular-nums}
+  .loc-row .name{flex:1;font-size:12px;color:var(--text);line-height:1.3}
+  .loc-row .name .ko{display:none}
+  .loc-list.show-ko .name .en{display:none}   /* 토글: 한글 모드 */
+  .loc-list.show-ko .name .ko{display:inline;color:var(--text)}  /* 한글도 흰색 유지 */
+  .loc-row .pct{font-size:12px;font-weight:700;color:var(--good);font-variant-numeric:tabular-nums}
+  .loc-toggle{margin-left:auto;background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+    border-radius:20px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;display:flex;gap:2px}
+  .loc-toggle span{padding:1px 6px;border-radius:12px}
+  .loc-toggle .on{background:var(--accent);color:#fff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🔍 디자인 유사도 검색</h1>
+    <p>도면 이미지를 올리면 학습된 MetaCLIP 2 + LoRA 모델이 유사한 디자인 특허 도면을 찾아줍니다.</p>
+  </header>
+
+  <div class="grid-top">
+   <div class="leftcol">
+    <!-- 업로드 패널 -->
+    <div class="card uploader">
+      <div class="drop" id="drop">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M12 16V4m0 0L7 9m5-5l5 5" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2" stroke-linecap="round"/>
+        </svg>
+        <b>이미지를 끌어다 놓거나 클릭</b>
+        <span>PNG · JPG · 디자인 도면 권장</span>
+      </div>
+      <input type="file" id="file" accept="image/*" hidden />
+      <div class="preview" id="preview"><img id="previewImg" alt="query" /></div>
+      <label class="topk">결과 개수
+        <select id="topk">
+          <option>8</option><option selected>12</option><option>24</option><option>48</option>
+        </select>
+      </label>
+      <div class="alpha">
+        <div class="alpha-lbl"><span>개념 강도</span><span id="alphaVal">순수 이미지</span></div>
+        <input type="range" id="alpha" min="0" max="100" value="100" />
+        <div class="alpha-ends"><span>개념(카테고리)</span><span>시각 유사도</span></div>
+      </div>
+      <div class="row">
+        <button class="btn" id="searchBtn" disabled>유사 디자인 검색</button>
+        <button class="btn-ghost" id="clearBtn">지우기</button>
+      </div>
+    </div>
+
+    <!-- 좌측 하단: 검색 결과 로카르노 분류 분포 top10 -->
+    <div class="card locpanel" id="locarnoPanel" style="display:none">
+      <div class="loc-head">로카르노 분류 <span class="muted">top 10</span>
+        <button class="loc-toggle" id="locToggle" type="button" title="영어/한글 전환">
+          <span class="on" data-lang="en">EN</span><span data-lang="ko">한글</span>
+        </button>
+      </div>
+      <div id="locList" class="loc-list"></div>
+    </div>
+   </div>
+
+    <!-- 결과 패널 -->
+    <div>
+      <!-- 텍스트 → 이미지 검색 -->
+      <div class="searchbar">
+        <input id="textq" type="text" placeholder="명칭으로 검색 — 예: chair, bottle, mobile phone" />
+        <button class="btn" id="textBtn">텍스트 검색</button>
+      </div>
+
+      <!-- 업로드 이미지의 예측 명칭 (이미지 → 텍스트) -->
+      <div id="predicted" class="predicted" style="display:none">
+        <span class="plabel">이 이미지의 예측 명칭</span>
+        <div id="predChips" class="pchips"></div>
+      </div>
+
+      <div class="results-head">
+        <h2>검색 결과</h2>
+        <span class="muted" id="statusText">이미지를 올리거나 텍스트로 검색하세요</span>
+      </div>
+      <div id="results"><div class="empty">아직 검색하지 않았습니다.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 출원 전체 도면 팝업 (모달) -->
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span class="mt" id="mTitle"></span>
+      <span class="mno" id="mNo"></span>
+      <span class="mcnt" id="mCnt"></span>
+      <button class="modal-x" id="mClose" type="button" title="닫기">✕</button>
+    </div>
+    <div class="modal-grid" id="mGrid"></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const drop=$("#drop"), file=$("#file"), preview=$("#preview"), previewImg=$("#previewImg");
+const searchBtn=$("#searchBtn"), clearBtn=$("#clearBtn"), results=$("#results"), statusText=$("#statusText");
+let picked=null;
+
+function setFile(f){
+  if(!f||!f.type.startsWith("image/"))return;
+  picked=f;
+  previewImg.src=URL.createObjectURL(f);
+  preview.style.display="block";
+  searchBtn.disabled=false;
+  statusText.textContent="준비됨 — 검색을 눌러주세요";
+}
+drop.addEventListener("click",()=>file.click());
+file.addEventListener("change",e=>setFile(e.target.files[0]));
+["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("drag")}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("drag")}));
+drop.addEventListener("drop",e=>setFile(e.dataTransfer.files[0]));
+window.addEventListener("paste",e=>{const it=[...e.clipboardData.files][0];if(it)setFile(it)});
+
+const predicted=$("#predicted"), predChips=$("#predChips"), textq=$("#textq"), textBtn=$("#textBtn");
+
+clearBtn.addEventListener("click",()=>{
+  picked=null;file.value="";preview.style.display="none";searchBtn.disabled=true;
+  predicted.style.display="none";activeCat="";alpha.value=100;fmtAlpha();
+  locarnoPanel.style.display="none";
+  results.innerHTML='<div class="empty">아직 검색하지 않았습니다.</div>';
+  statusText.textContent="이미지를 올리거나 텍스트로 검색하세요";
+});
+
+const alpha=$("#alpha"), alphaVal=$("#alphaVal");
+let activeCat="";   // 사용자가 고른 카테고리(칩). 없으면 서버가 예측 top-1 사용
+
+function fmtAlpha(){
+  const a=alpha.value/100;
+  alphaVal.textContent = a>=1 ? "순수 이미지" : `개념 ${Math.round((1-a)*100)}%`;
+}
+alpha.addEventListener("input",fmtAlpha);
+alpha.addEventListener("change",()=>{ if(picked) imageSearch(activeCat); });  // 슬라이더 놓으면 재검색
+
+// 이미지 검색 (+ 예측 명칭). category/alpha 주면 개념 검색(융합)
+async function imageSearch(category){
+  if(!picked)return;
+  activeCat = category||"";
+  searchBtn.disabled=true;
+  results.innerHTML='<div class="loading"><div class="spinner"></div>검색 중…</div>';
+  statusText.textContent="검색 중…";
+  const fd=new FormData();
+  fd.append("image",picked);
+  fd.append("alpha",(alpha.value/100).toString());
+  if(activeCat) fd.append("category",activeCat);
+  const topk=$("#topk").value;
+  const t0=performance.now();
+  try{
+    const res=await fetch(`/api/search?topk=${topk}`,{method:"POST",body:fd});
+    if(!res.ok)throw new Error(await res.text());
+    const data=await res.json();
+    renderPredicted(data.predicted_labels, data.used_category);
+    renderLocarno(data.locarno_facets);
+    const secs=((performance.now()-t0)/1000).toFixed(2);
+    render(data.results,secs);
+    if(data.used_category) statusText.textContent=`${data.results.length}건 · 개념 "${data.used_category}" · ${secs}s`;
+  }catch(err){
+    results.innerHTML=`<div class="empty">오류: ${err.message}</div>`;
+    statusText.textContent="실패";
+  }finally{ searchBtn.disabled=false; }
+}
+searchBtn.addEventListener("click",()=>imageSearch(""));
+
+// 텍스트 → 이미지 검색
+async function textSearch(q){
+  q=(q||"").trim(); if(!q)return;
+  textq.value=q;
+  predicted.style.display="none";
+  results.innerHTML='<div class="loading"><div class="spinner"></div>검색 중…</div>';
+  statusText.textContent=`"${q}" 검색 중…`;
+  const fd=new FormData(); fd.append("query",q);
+  const topk=$("#topk").value;
+  const t0=performance.now();
+  try{
+    const res=await fetch(`/api/search_text?topk=${topk}`,{method:"POST",body:fd});
+    if(!res.ok)throw new Error(await res.text());
+    const data=await res.json();
+    renderLocarno(data.locarno_facets);
+    render(data.results,((performance.now()-t0)/1000).toFixed(2));
+  }catch(err){
+    results.innerHTML=`<div class="empty">오류: ${err.message}</div>`;
+    statusText.textContent="실패";
+  }
+}
+textBtn.addEventListener("click",()=>textSearch(textq.value));
+textq.addEventListener("keydown",e=>{if(e.key==="Enter")textSearch(textq.value)});
+
+// 예측 명칭 칩 렌더. 클릭하면 그 카테고리로 '개념 검색'(이미지+카테고리 융합)
+function renderPredicted(labels, usedCat){
+  if(!labels||!labels.length){predicted.style.display="none";return;}
+  predChips.innerHTML=labels.map((l,i)=>{
+    const on = usedCat && l.label===usedCat;
+    return `<span class="pchip${on?" active":(i===0?" top":"")}" data-q="${escapeHtml(l.label)}">`+
+      `${escapeHtml(l.label)} <span class="pct">${(l.score*100).toFixed(0)}%</span></span>`;}).join("");
+  predChips.querySelectorAll(".pchip").forEach(c=>c.addEventListener("click",()=>{
+    // 개념 강도가 순수이미지(100%)면 자동으로 개념쪽으로 낮춰 효과가 보이게
+    if(alpha.value>=100){ alpha.value=50; fmtAlpha(); }
+    imageSearch(c.dataset.q);
+  }));
+  predicted.style.display="block";
+}
+
+function render(items,secs){
+  if(!items.length){results.innerHTML='<div class="empty">결과가 없습니다.</div>';return;}
+  statusText.textContent=`${items.length}건 · ${secs}s`;
+  const cards=$("#results");
+  const el=document.createElement("div");el.className="cards";
+  el.innerHTML=items.map((r,i)=>{
+    const pct=Math.max(0,Math.min(100,Math.round(r.score*100)));
+    const nd=r.num_drawings||1;
+    return `<div class="item">
+      <span class="rank">#${i+1}</span>
+      <span class="score">${r.score.toFixed(3)}</span>
+      <div class="thumb" data-design="${escapeHtml(r.design_id)}" title="클릭하면 이 출원의 모든 도면 보기">
+        <img loading="lazy" src="${r.image_url}" alt="">
+        ${nd>1?`<span class="ndraw">🖼 ${nd}</span>`:""}
+      </div>
+      <div class="meta">
+        <div class="title">${escapeHtml(r.title||"(제목 없음)")}</div>
+        <div class="pno">출원 ${escapeHtml(r.patent_no||r.design_id||"")}</div>
+        <div class="sub">
+          ${r.locarno?`<span class="chip">Locarno ${r.locarno}</span>`:""}
+          ${r.viewpoint?escapeHtml(r.viewpoint):""}
+        </div>
+        <div class="bar"><i style="width:${pct}%"></i></div>
+      </div>
+    </div>`;}).join("");
+  cards.innerHTML="";cards.appendChild(el);
+  el.querySelectorAll(".thumb[data-design]").forEach(t=>
+    t.addEventListener("click",()=>openDesign(t.dataset.design)));
+}
+
+// 출원 전체 도면 모달 (브라우저 새창 아님)
+const modal=$("#modal"), mGrid=$("#mGrid"), mTitle=$("#mTitle"), mNo=$("#mNo"), mCnt=$("#mCnt");
+async function openDesign(designId){
+  if(!designId)return;
+  mTitle.textContent=""; mNo.textContent=""; mCnt.textContent="";
+  mGrid.innerHTML='<div class="loading" style="grid-column:1/-1"><div class="spinner"></div>도면 불러오는 중…</div>';
+  modal.classList.add("open");
+  try{
+    const res=await fetch(`/api/design/${encodeURIComponent(designId)}`);
+    if(!res.ok)throw new Error(await res.text());
+    const d=await res.json();
+    mTitle.textContent=d.title||"(제목 없음)";
+    mNo.textContent=`출원 ${d.patent_no||d.design_id}`;
+    mCnt.textContent=`도면 ${d.count}개`;
+    mGrid.innerHTML=d.drawings.map(g=>
+      `<div class="mfig">
+        <div class="mimg"><img loading="lazy" src="${g.image_url}" alt=""></div>
+        <div class="mcap">${escapeHtml(g.viewpoint||"")}</div>
+      </div>`).join("")||'<div class="empty" style="grid-column:1/-1">도면이 없습니다.</div>';
+  }catch(err){
+    mGrid.innerHTML=`<div class="empty" style="grid-column:1/-1">오류: ${escapeHtml(err.message)}</div>`;
+  }
+}
+function closeModal(){ modal.classList.remove("open"); }
+$("#mClose").addEventListener("click",closeModal);
+modal.addEventListener("click",e=>{ if(e.target===modal)closeModal(); });   // 배경 클릭 닫기
+window.addEventListener("keydown",e=>{ if(e.key==="Escape")closeModal(); });
+// 로카르노 분류 분포 렌더:  14-01 : 분류명칭 (00%)
+const locarnoPanel=$("#locarnoPanel"), locList=$("#locList"), locToggle=$("#locToggle");
+let locKo=false;   // false=영어, true=한글 (토글 버튼으로 전환)
+
+function applyLocLang(){
+  locList.classList.toggle("show-ko",locKo);
+  locToggle.querySelector('[data-lang="en"]').classList.toggle("on",!locKo);
+  locToggle.querySelector('[data-lang="ko"]').classList.toggle("on",locKo);
+}
+locToggle.addEventListener("click",()=>{ locKo=!locKo; applyLocLang(); });
+
+function renderLocarno(facets){
+  if(!facets||!facets.length){locarnoPanel.style.display="none";return;}
+  const max=Math.max(...facets.map(f=>f.pct));
+  locList.innerHTML=facets.map(f=>{
+    const ko=f.name_ko||f.name;
+    return `<div class="loc-row" data-q="${escapeHtml(f.name)}" title="${f.count}건 · 클릭하면 이 분류로 검색">
+       <div class="fill" style="width:${max?Math.round(f.pct/max*100):0}%"></div>
+       <div class="lr">
+         <span class="code">${f.code}</span>
+         <span class="name"><span class="en">${escapeHtml(f.name)}</span><span class="ko">${escapeHtml(ko)}</span></span>
+         <span class="pct">(${Math.round(f.pct)}%)</span>
+       </div>
+     </div>`;}).join("");
+  locList.querySelectorAll(".loc-row").forEach(r=>
+    r.addEventListener("click",()=>textSearch(r.dataset.q)));
+  applyLocLang();   // 재검색 후에도 선택한 언어 유지
+  locarnoPanel.style.display="block";
+}
+function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+</script>
+</body>
+</html>
