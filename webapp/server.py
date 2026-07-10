@@ -137,21 +137,34 @@ def _locarno_names(code):
     return {"en": "Unclassified", "ko": "미분류 / 기타"}
 
 
-def _locarno_facets(results, topn=10):
-    """검색 결과의 로카르노 분류 분포 top-N. [{code,name,name_ko,count,pct}]."""
-    from collections import Counter
-    codes = [r.get("locarno", "") for r in results if r.get("locarno", "")]
-    if not codes:
-        return []
-    total = len(codes)
-    facets = []
-    for code, cnt in Counter(codes).most_common(topn):
+def _locarno_facets_pool(qvec, topn=10, pool=200):
+    """유사도 상위 pool개 도면(출원번호 중복제거 안 함)에서 로카르노를 '유사도 가중합'으로
+    랭킹 → top-N. 화면 표시 건수와 무관하게, 쿼리에 가까운 도면일수록 크게 반영.
+    qvec: 이미지검색이면 이미지 임베딩, 텍스트검색이면 텍스트 임베딩."""
+    idx = STATE["index"]
+    p = min(pool, idx.ntotal)
+    scores, idxs = idx.search(qvec.astype("float32"), p)
+    meta = STATE["meta"]
+    agg = {}                                        # code -> [유사도합, 도면수]
+    for s, i in zip(scores[0].tolist(), idxs[0].tolist()):
+        if i < 0:
+            continue
+        code = meta[i].get("locarno", "")
+        if not code:
+            continue
+        a = agg.setdefault(code, [0.0, 0])
+        a[0] += max(0.0, float(s))                  # 가까울수록(유사도↑) 가중치 큼
+        a[1] += 1
+    total = sum(v[0] for v in agg.values()) or 1.0
+    ranked = sorted(agg.items(), key=lambda kv: kv[1][0], reverse=True)[:topn]
+    out = []
+    for code, (wsum, cnt) in ranked:
         nm = _locarno_names(code)
-        facets.append({
+        out.append({
             "code": _fmt_locarno(code), "name": nm["en"], "name_ko": nm["ko"],
-            "count": cnt, "pct": round(100 * cnt / total, 1),
+            "count": cnt, "pct": round(100 * wsum / total, 1),
         })
-    return facets
+    return out
 
 
 def _predict_labels(img_vec, topn=5):
@@ -197,13 +210,16 @@ def search(image: UploadFile = File(...), topk: int = 12,
             sel_sc, sel_ids = STATE["index"].search(img_vec.astype("float32"), pool)
             sel_ids, sel_sc = sel_ids[0], sel_sc[0]
 
-    results = _dedup_pack(sel_ids, sel_sc, int(topk))   # 출원번호 중복 제거
+        # 로카르노 분포: 항상 이미지↔이미지 유사도 상위 도면(중복제거 X)의 가중합 기준
+        facets = _locarno_facets_pool(img_vec)
+
+    results = _dedup_pack(sel_ids, sel_sc, int(topk))   # 출원번호 중복 제거(표시용)
     return JSONResponse({
         "count": len(results),
         "predicted_labels": predicted,                  # 이미지→텍스트 변환 결과
         "used_category": used_cat, "alpha": alpha,
         "results": results,
-        "locarno_facets": _locarno_facets(results),     # 결과의 로카르노 분포 top10
+        "locarno_facets": facets,                       # 이미지 유사도 기반 로카르노 top10
     })
 
 
@@ -216,12 +232,13 @@ def search_text(query: str = Form(...), topk: int = 12):
         vec = encode_text(STATE["model"], STATE["proc"], [query], STATE["device"])
         pool = min(max(int(topk) * 12, 120), STATE["index"].ntotal)
         scores, idxs = STATE["index"].search(vec, pool)
-    results = _dedup_pack(idxs[0], scores[0], int(topk))   # 출원번호 중복 제거
+        facets = _locarno_facets_pool(vec)              # 텍스트↔이미지 유사도 가중합 기준
+    results = _dedup_pack(idxs[0], scores[0], int(topk))   # 출원번호 중복 제거(표시용)
     return JSONResponse({
         "count": len(results),
         "query": query,
         "results": results,
-        "locarno_facets": _locarno_facets(results),     # 결과의 로카르노 분포 top10
+        "locarno_facets": facets,                       # 유사도 기반 로카르노 top10
     })
 
 

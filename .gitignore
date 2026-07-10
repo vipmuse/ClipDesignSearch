@@ -3,8 +3,9 @@
 models/
 outputs/
 data/imgs/
-# 94MB, build_pairs.py로 재생성 가능 (GitHub 용량 제한)
+# build_pairs.py로 재생성 가능 (GitHub 용량 제한)
 data/pairs.jsonl
+data/eval_*.jsonl
 __pycache__/
 *.pyc
 .cache/

@@ -44,16 +44,21 @@ def encode_pil(model, proc, imgs, size, device):
 
 
 @torch.no_grad()
-def encode_text(model, proc, texts, device):
-    """텍스트 리스트 → L2 정규화 임베딩 [N, D]. 이미지 임베딩과 같은 joint 공간."""
-    tok = proc(text=list(texts), return_tensors="pt", padding=True,
-               truncation=True, max_length=77).to(device)
-    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=(device == "cuda")):
-        emb = model.get_text_features(**tok)
-    if not torch.is_tensor(emb):           # MetaCLIP 2는 출력 객체 반환 → pooler_output 사용
-        emb = emb.pooler_output
-    emb = torch.nn.functional.normalize(emb.float(), dim=-1)
-    return emb.cpu().numpy().astype("float32")
+def encode_text(model, proc, texts, device, batch_size=256):
+    """텍스트 리스트 → L2 정규화 임베딩 [N, D]. 이미지 임베딩과 같은 joint 공간.
+    라벨 뱅크(수만 개)를 한 번에 넣으면 VRAM 폭발 → 청크 단위로 배치 처리."""
+    texts = list(texts)
+    out = []
+    for k in range(0, len(texts), batch_size):
+        tok = proc(text=texts[k:k + batch_size], return_tensors="pt", padding=True,
+                   truncation=True, max_length=77).to(device)
+        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=(device == "cuda")):
+            emb = model.get_text_features(**tok)
+        if not torch.is_tensor(emb):       # MetaCLIP 2는 출력 객체 반환 → pooler_output 사용
+            emb = emb.pooler_output
+        emb = torch.nn.functional.normalize(emb.float(), dim=-1)
+        out.append(emb.cpu().numpy().astype("float32"))
+    return np.concatenate(out) if out else np.zeros((0, 1), "float32")
 
 
 @torch.no_grad()
