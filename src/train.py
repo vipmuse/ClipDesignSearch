@@ -209,20 +209,22 @@ def main():
     step = 0
     stop = False
     for epoch in range(t["epochs"]):
+        if stop:            # --max-steps로 끊긴 뒤 임베딩 갱신(실측 최대 ~2시간)을 낭비하지 않도록
+            break           # 갱신 블록보다 반드시 위에 있어야 한다
         if isinstance(sampler, HobitBatchSampler) and \
                 epoch % max(1, t.get("hobit_refresh_every", 1)) == 0:
             # 배치 구성이 "현재" 모델 기준이어야 hard negative가 의미를 갖는다.
             # 학습 집합 전체를 1회 추론하는 비용이 에폭마다 든다 → refresh_every로 조절.
+            # 디코딩이 비용의 대부분(실측 78%)이라 학습 로더와 같은 num_workers로 병렬화한다.
             # refresh_embeddings가 eval/train 전환을 책임진다 — 인코딩 중 예외(OOM 등)가
             # 나도 model.train()이 복구되도록 finally로 감싸져 있다 (src/hobit.py).
             with torch.no_grad():
                 emb = refresh_embeddings(
                     model, train_recs, args.image_root, cfg["model"]["image_size"],
-                    lambda imgs: _encode_for_hobit(model, processor, imgs, device, dtype))
+                    lambda imgs: _encode_for_hobit(model, processor, imgs, device, dtype),
+                    num_workers=t["num_workers"])
             sampler.set_embeddings(emb)
             print(f"[hobit] epoch {epoch}: 임베딩 {emb.shape} 갱신", flush=True)
-        if stop:
-            break
         for i, enc in enumerate(train_loader):
             design_label = enc.pop("design_label").to(device)
             enc = {k: v.to(device) for k, v in enc.items()}

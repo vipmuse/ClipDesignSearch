@@ -30,14 +30,30 @@ class HobitBatchSampler:
       모순이 아니다. 다른 design_id인데 텍스트가 같은 쌍만 모순이다.
     - mask_false_negatives=False — 대각선만 positive라 같은 design_id의 다른 뷰도
       네거티브로 밀린다. 둘 다 모순이다.
+    기본값 True는 train.py의 손실(mask_fn = t.get("mask_false_negatives", True))과 맞춘
+    것이다. 키가 없을 때 손실과 샘플러가 서로 다른 것을 positive로 보면, 샘플러가
+    손실의 정답 쌍을 피해 다니는(또는 그 반대) 조용한 불일치가 생긴다.
 
-    한계: 에폭의 마지막 배치는 남은 인덱스가 정확히 batch_size개라 선택의 여지가 없다.
-    모순이 있어도 그대로 들어간다. 모든 예제를 정확히 한 번 쓰는 한 구조적으로
-    피할 수 없으며, 실데이터(에폭당 수천 배치)에서는 무시할 수준이다.
+    한계 1 — 모순은 '마지막 배치' 하나가 아니라 꼬리로 쌓인다. penalty는 모순 쌍을
+    없애는 게 아니라 뒤로 미루기만 하고, 모든 예제를 정확히 한 번 쓰는 커버리지 제약
+    때문에 미뤄둔 것들은 에폭 끝에서 한꺼번에 소진된다. 실데이터 실측(425,140 레코드,
+    penalty 10, pool 4096, batch 32 → 13,285 배치): 1~13,266번 배치는 모순 쌍이 정확히
+    0이고 모순은 전부 마지막 19개 배치에 몰린다(2개는 200쌍 이상, 최대 496 = C(32,2)
+    = 모든 쌍이 모순인 배치). 꼬리 길이는 제목 쏠림에 비례한다(최다 제목 점유율 3%면
+    47배치, 16%면 795배치 — 실제 "Shoe"는 1.01%). 이 꼬리가 에폭의 끝, 즉 evaluate와
+    어댑터 저장 바로 직전에 놓인다는 점에 유의한다.
+
+    한계 2 — 메모리. self.emb는 학습 내내 상주한다(425,140 × 1024 float32 = 1.74 GB).
+    refresh_embeddings는 교체본을 전부 만든 뒤 swap하므로 갱신 순간 호스트 RAM 피크는
+    약 3.5 GB다.
+
+    한계 3 — 재현성. 배치가 GPU에서 계산한 임베딩에 의존하므로 같은 seed의 두 hobit
+    런이 같은 배치 시퀀스를 낸다는 보장이 없다. 시드 셔플/시드 PK로 완전히 결정적인
+    다른 arm들과 달리 hobit의 Δ에는 런 간 분산이 더 섞여 있다 — 비교 시 감안할 것.
     """
 
     def __init__(self, records, batch_size, pool=4096, penalty=10.0,
-                 mask_false_negatives=False, seed=42):
+                 mask_false_negatives=True, seed=42):
         self.batch_size = int(batch_size)
         self.pool = max(self.batch_size, int(pool))
         self.penalty = float(penalty)
@@ -112,42 +128,126 @@ class HobitBatchSampler:
                 rem[p] = rem[m]
 
 
-def embed_records(records, image_root, size, encode_fn, batch_size=64):
+MAX_FAIL_RATIO = 0.01     # 이 비율을 넘게 실패하면 설정 사고로 보고 중단 (아래 근거)
+
+
+class _DecodeCollator:
+    """디코딩 + preprocess_drawing까지 워커에서 끝내는 collate.
+
+    Windows spawn 워커로 피클되어야 하므로 람다·지역 클로저가 아닌 모듈 최상위 클래스다.
+    반환 (PIL 리스트, 성공한 배치 내 위치, 배치 크기) — 실패를 건너뛰어도 호출자가
+    원래 행 번호를 복원할 수 있어야 하고, 실패 수를 세려면 배치 크기도 필요하다.
+    """
+
+    def __init__(self, image_root, size):
+        self.image_root = image_root
+        self.size = size
+
+    def __call__(self, batch):
+        imgs, offs = [], []
+        for k, r in enumerate(batch):
+            try:
+                im = Image.open(os.path.join(self.image_root, r["image"]))
+                im.load()
+                imgs.append(preprocess_drawing(im.convert("RGB"), self.size))
+                offs.append(k)
+            except Exception:
+                continue                          # 0 벡터로 남는다 (정렬 유지)
+        return imgs, offs, len(batch)
+
+
+def _decode_serial(records, image_root, size, batch_size):
+    """단일 프로세스 디코딩. (PIL 리스트, 행 번호, 배치 크기) 스트림."""
+    coll = _DecodeCollator(image_root, size)
+    for start in range(0, len(records), batch_size):
+        imgs, offs, nb = coll(records[start:start + batch_size])
+        yield imgs, [start + o for o in offs], nb
+
+
+def _decode_parallel(records, image_root, size, batch_size, num_workers):
+    """DataLoader 워커로 디코딩을 병렬화한 같은 스트림.
+
+    디코딩+PIL 전처리는 실측 72 img/s(단일 스레드)인데 ViT-H forward는 배치 64 bf16에서
+    254 img/s다 — 즉 갱신 비용의 78%가 GIL에 묶인 PIL 작업이다. 학습 루프가 이미 같은
+    디코딩을 num_workers로 병렬화하고 있으므로, 손으로 스레드를 짜는 대신 같은
+    PairDataset + DataLoader를 그대로 재사용한다.
+
+    shuffle=False라 배치 순서가 sampler 순서와 같음이 보장된다 → 앞 배치들의 크기 합이
+    곧 현재 배치의 시작 행 번호다.
+    """
+    from torch.utils.data import DataLoader
+
+    from dataset import PairDataset
+    loader = DataLoader(PairDataset(records), batch_size=batch_size, shuffle=False,
+                        num_workers=num_workers,
+                        collate_fn=_DecodeCollator(image_root, size))
+    start = 0
+    for imgs, offs, nb in loader:
+        yield imgs, [start + o for o in offs], nb
+        start += nb
+
+
+def embed_records(records, image_root, size, encode_fn, batch_size=64, num_workers=0,
+                  max_fail_ratio=MAX_FAIL_RATIO):
     """레코드 순서를 보존한 [N, D] 임베딩. encode_fn(PIL 리스트) -> [B, D].
 
     행 i가 records[i]에 대응하는 것이 이 함수의 유일한 계약이다. 샘플러가 행 번호로
     design_id·텍스트를 조회하므로, 열 수 없는 이미지를 건너뛰면 그 뒤 전부가 밀려
     엉뚱한 레코드의 임베딩으로 배치를 짜게 된다. 실패 자리는 0 벡터로 채운다.
+
+    num_workers>0이면 디코딩을 DataLoader 워커로 돌린다(기본 0 = 기존 직렬 경로).
+    실데이터 425,140장 기준 직렬은 약 98.6분 — 그 뒤 에폭 자체보다 오래 걸린다.
+    진행률은 tqdm으로 찍는다: 두 시간 동안 아무 출력이 없으면 운영자는 멈춘 줄 알고
+    다일(多日) 학습을 죽인다.
+
+    실패는 세어서 로그로 남기고, 조용히 성능만 나빠지는 대신 크게 실패한다:
+      - 한 장도 못 열면 RuntimeError. (0 벡터 행렬을 돌려주면 set_embeddings가 행 수만
+        보고 통과시키고, dots가 항상 0이라 greedy가 baseline 랜덤 배치로 퇴화한다.)
+      - 실패 비율이 max_fail_ratio(기본 1%)를 넘어도 RuntimeError. 1%로 잡은 이유:
+        472,615장 인덱스 빌드에서 실제로 못 연 도면은 극소수(0.1% 미만)라 정상 범위는
+        1%에 한참 못 미치고, 반대로 --image-root 오지정·pairs.jsonl 경로 변경 같은
+        설정 사고는 사실상 100% 실패로 나타난다. 그 사이에는 실데이터가 없어, 산발적
+        손상 파일은 통과시키고 설정 사고는 잡는 경계로 1%를 고른다.
     """
     Image.MAX_IMAGE_PIXELS = None
-    out, buf, buf_rows, dim = None, [], [], None
+    n = len(records)
+    if n == 0:
+        return np.zeros((0, 1), dtype="float32")
 
-    def flush():
-        nonlocal out, dim
-        if not buf:
-            return
-        vec = np.asarray(encode_fn(buf), dtype="float32")
-        if out is None:
-            dim = vec.shape[1]
-            out = np.zeros((len(records), dim), dtype="float32")
-        out[buf_rows] = vec
-        buf.clear(); buf_rows.clear()
+    from tqdm import tqdm
+    stream = (_decode_parallel(records, image_root, size, batch_size, num_workers)
+              if num_workers and num_workers > 0
+              else _decode_serial(records, image_root, size, batch_size))
+    out, failed = None, 0
+    bar = tqdm(total=n, desc="hobit embed")
+    try:
+        for imgs, rows, nb in stream:
+            failed += nb - len(imgs)
+            if imgs:
+                vec = np.asarray(encode_fn(imgs), dtype="float32")
+                if out is None:
+                    out = np.zeros((n, vec.shape[1]), dtype="float32")
+                out[rows] = vec
+            bar.update(nb)
+    finally:
+        bar.close()
 
-    for i, r in enumerate(records):
-        try:
-            im = Image.open(os.path.join(image_root, r["image"]))
-            im.load()
-            buf.append(preprocess_drawing(im.convert("RGB"), size))
-            buf_rows.append(i)
-        except Exception:
-            continue                              # 0 벡터로 남는다 (정렬 유지)
-        if len(buf) >= batch_size:
-            flush()
-    flush()
-    return out if out is not None else np.zeros((len(records), 1), dtype="float32")
+    if failed:
+        print(f"[hobit] 이미지 {failed}/{n}장을 열지 못해 0 벡터로 남겼다", flush=True)
+    if out is None:
+        raise RuntimeError(
+            f"레코드 {n}개 중 임베딩에 성공한 이미지가 하나도 없다 — "
+            f"image_root({image_root})와 pairs.jsonl의 상대경로를 확인할 것")
+    if failed / n > max_fail_ratio:
+        raise RuntimeError(
+            f"임베딩 실패 {failed}/{n}장({failed / n:.1%})이 허용치 {max_fail_ratio:.1%}를 "
+            f"넘는다 — image_root({image_root}) 오지정일 가능성이 높다. "
+            f"실패 행은 0 벡터라 greedy가 그 레코드들을 에폭 끝으로 밀어낸다")
+    return out
 
 
-def refresh_embeddings(model, records, image_root, size, encode_fn, batch_size=64):
+def refresh_embeddings(model, records, image_root, size, encode_fn, batch_size=64,
+                       num_workers=0):
     """model을 eval로 내려 임베딩을 만들고, 예외가 나도 train 모드로 되돌린다.
 
     복구를 빠뜨리면 이후 학습이 조용히 eval 모드로 돌아 dropout이 꺼진 채 진행된다 —
@@ -155,6 +255,7 @@ def refresh_embeddings(model, records, image_root, size, encode_fn, batch_size=6
     """
     model.eval()
     try:
-        return embed_records(records, image_root, size, encode_fn, batch_size)
+        return embed_records(records, image_root, size, encode_fn, batch_size,
+                             num_workers=num_workers)
     finally:
         model.train()

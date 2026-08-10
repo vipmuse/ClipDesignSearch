@@ -185,6 +185,10 @@ python scripts\run_ablation.py --epochs 3 --no-index   # 인덱스 빌드 생략
 python scripts\run_ablation.py --arms baseline hobit --epochs 3   # 배치 구성 단독 기여
 ```
 
+- `hobit` arm은 다른 arm보다 비싸다: 에폭마다 학습 분할 전체(425,140장)를 1회 추론해
+  배치 구성용 임베딩을 갱신한다(실측 디코딩 98.6분 + ViT-H forward 27.9분 → 디코딩을
+  `num_workers`로 병렬화해도 에폭당 수십 분 추가). 비용을 줄이려면 메서드 YAML의
+  `hobit_refresh_every`를 2 이상으로 (N 에폭마다 1회 갱신).
 - 학습 1회가 오래 걸리므로 `--epochs 3`으로 좁힌 뒤, 유망한 조합만 풀 epoch 재학습 권장.
 - 중단돼도 재실행하면 완료된 arm(어댑터/평가/인덱스 존재)은 자동 스킵 (`--force`로 무시).
 - 인덱스 빌드는 `--limit`을 포함한 지문(`index/index_meta.json`)을 남긴다. `--quick`으로
