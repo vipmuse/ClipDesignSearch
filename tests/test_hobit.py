@@ -9,12 +9,16 @@ from hobit import HobitBatchSampler  # noqa: E402
 
 
 def _recs(n_design=40, views=4, titles=("Shoe", "Bottle")):
-    """디자인 n_design개 × 뷰 views장. 제목은 titles를 순환 → 다른 디자인이 같은 제목을 공유."""
+    """디자인 n_design개 × 뷰 views장.
+
+    titles=None이면 디자인마다 고유 제목 → 제목 충돌 없이 design_id 항만 남는다.
+    기본값(2종 순환)은 다른 디자인이 제목을 공유하는 상황을 만든다.
+    """
     out = []
     for d in range(n_design):
+        title = f"T{d}" if titles is None else titles[d % len(titles)]
         for v in range(views):
-            out.append({"image": f"{d}_{v}.png", "design_id": f"D{d}",
-                        "text": titles[d % len(titles)]})
+            out.append({"image": f"{d}_{v}.png", "design_id": f"D{d}", "text": title})
     return out
 
 
@@ -82,8 +86,13 @@ def test_hardness_배치가_한_군집으로_뭉친다():
 
 
 def test_마스킹_off면_같은_design_id를_같은_배치에_피한다():
-    """mask_false_negatives=False면 같은 디자인의 뷰도 네거티브로 밀리므로 모순이다."""
-    recs = _recs(n_design=64, views=4)
+    """mask_false_negatives=False면 같은 디자인의 뷰도 네거티브로 밀리므로 모순이다.
+
+    제목을 디자인마다 고유하게 준다: 제목이 2종뿐이면 같은 design_id ⟹ 같은 제목이라
+    same_text 항이 same_design 항을 완전히 가려, design_id 회피가 작동하는지 확인할 수 없다.
+    실데이터는 제목당 평균 16개 레코드라 4096 풀에서 제목 충돌이 희소하다.
+    """
+    recs = _recs(n_design=64, views=4, titles=None)
     s = HobitBatchSampler(recs, batch_size=16, pool=128, penalty=50.0,
                           mask_false_negatives=False, seed=5)
     s.set_embeddings(_two_clusters(len(recs)))
@@ -92,6 +101,16 @@ def test_마스킹_off면_같은_design_id를_같은_배치에_피한다():
         ds = [recs[i]["design_id"] for i in b]
         dup += len(ds) - len(set(ds))
     assert dup == 0, f"같은 design_id가 한 배치에 {dup}번 겹쳤다"
+
+
+def test_마스킹_on이면_같은_design_id_뷰가_같은_배치에_모일_수_있다():
+    """마스킹이 켜지면 같은 design_id는 positive로 처리되므로 회피 대상이 아니다."""
+    recs = _recs(n_design=64, views=4, titles=None)
+    s = HobitBatchSampler(recs, batch_size=16, pool=128, penalty=50.0,
+                          mask_false_negatives=True, seed=5)
+    s.set_embeddings(_two_clusters(len(recs)))
+    dup = sum(len(b) - len({recs[i]["design_id"] for i in b}) for b in s)
+    assert dup > 0, "마스킹 on인데도 같은 design_id를 회피하고 있다 — 조건부 규칙이 무의미"
 
 
 def test_마스킹_on이면_같은_design_id는_허용하고_동일제목_타디자인만_피한다():
