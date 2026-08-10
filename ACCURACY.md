@@ -172,10 +172,14 @@ outputs/methods/<name>/
 | `pkmask` | +PK 샘플러+마스킹 | ①+③ (세트 — PK 단독은 유해) |
 | `pkmask-i2i` | +PK+마스킹+supcon | ①+③+img2img loss |
 | `all` | 전부 ON | 최종 레시피 |
-| `hobit` | baseline + submodular greedy 배치 구성 | ① 배치 구성의 원리적 대체 (ICML 2026) |
-| `tic` | baseline + 텍스트 모달 내부 대조 | ③ 제목 중복(27,412/28,859)이 이 데이터의 핵심 난점 |
+| (선택) `hobit` | baseline + submodular greedy 배치 구성 | ① 배치 구성의 원리적 대체 (ICML 2026) |
+| (선택) `tic` | baseline + 텍스트 모달 내부 대조 | ③ 제목 중복(27,412/28,859)이 이 데이터의 핵심 난점 |
 | (선택) `pk-only` | PK만, 마스킹 없이 | 유해 상호작용 실증 |
 | (선택) `all-mlp` / `all-proj` / `all-r32` | all + LoRA 확장 | ⑫ 계열, 최종 레시피 위 추가 기여 |
+
+`(선택)` 표시가 없는 행(`base`~`all`)만 `run_ablation.py`를 인자 없이 돌렸을 때 학습된다
+(= `DEFAULT_ARMS` + 항상 앞에 붙는 `base`). `(선택)` 행은 `--arms`로 이름을 적어야 돈다 —
+`hobit`과 `tic`도 여기 속한다(각각 비용·미검증 하이퍼파라미터 때문).
 
 ```powershell
 python scripts\run_ablation.py --quick        # 스모크 (레코드 2000 × 1 epoch)

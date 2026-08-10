@@ -64,7 +64,7 @@ def supcon_loss(feats, labels, temperature=0.1):
     return -mean_log_prob[valid].mean()
 
 
-def tic_loss(text_embeds, design_label, text_label, margin=0.9):
+def tic_loss(text_embeds, design_label, text_label, margin=0.9, return_stats=False):
     """텍스트 모달 내부 대조(TIC). 가까이 붙은 '서로 다른' 제목 쌍만 밀어낸다.
 
     이 데이터의 핵심 난점은 제목이 거의 다 겹친다는 것이다 — 고유 제목 28,859개 중
@@ -78,16 +78,53 @@ def tic_loss(text_embeds, design_label, text_label, margin=0.9):
     - 같은 design_id 쌍: 같은 디자인의 뷰는 붙어 있는 것이 맞다.
 
     margin 이하로 떨어진 쌍은 이미 충분히 구분되므로 손실에 기여하지 않는다.
+
+    return_stats=True면 (loss, 대상 쌍 수, 위반 쌍 수)를 돌려준다. 항의 값만으로는
+    "0에 가까움"이 '밀 게 없어서'인지 '필터가 다 걸러서'인지 구분되지 않는데,
+    그 둘은 정반대 처방을 요구한다(전자는 margin↑, 후자는 배치 구성 변경).
     """
-    t = F.normalize(text_embeds, dim=-1)
+    # .float(): bf16 autocast 아래서는 t @ t.t()도 bf16이라 0.9 근처 표현 간격이
+    # ~0.002다 — margin 임계가 ±0.2% 흐려지고 hinge 값이 ~50단계로 양자화된다.
+    # F.normalize는 오늘의 MetaCLIP 2 출력에는 중복이지만 지우면 안 된다: 이 손실을
+    # 행 단위 스케일 불변으로 만드는 장치라, 그래디언트가 각 임베딩에 직교하게 투영돼
+    # 밀어내기가 노름을 부풀리거나 무너뜨리는 방향으로 새지 않는다.
+    t = F.normalize(text_embeds.float(), dim=-1)
     sim = t @ t.t()
     B = t.size(0)
     upper = torch.triu(torch.ones(B, B, dtype=torch.bool, device=t.device), diagonal=1)
     eligible = upper & (design_label[:, None] != design_label[None, :]) \
                      & (text_label[:, None] != text_label[None, :])
     if not eligible.any():
-        return text_embeds.new_tensor(0.0)
-    return (sim[eligible] - margin).clamp(min=0).mean()
+        zero = t.new_tensor(0.0)
+        return (zero, 0, 0) if return_stats else zero
+    hinge = (sim[eligible] - margin).clamp(min=0)
+    loss = hinge.mean()
+    # 통계는 파이썬 int로 낸다. 위 eligible.any()가 이미 매 스텝 GPU 동기화를
+    # 유발하므로(if 조건이라 값이 필요하다) 카운트 두 개를 더 꺼내는 비용은 없다.
+    return (loss, int(eligible.sum()), int((hinge > 0).sum())) if return_stats else loss
+
+
+def compose_loss(out, pos, t, design_label, text_label):
+    """총 손실 = CLIP + (img2img) + (TIC). out은 모델 출력 객체 또는 동일 필드를 가진 무엇이든.
+
+    학습 루프에서 떼어낸 이유: 게이트가 실제로 켜지는지 모델 없이 검증하기 위해서다.
+    tic_weight 오타나 잘못된 블록 배치로 tic arm이 조용히 baseline과 같아지는 사고가
+    이 파이프라인의 최악 실패 모드다 — 며칠짜리 학습을 태우고 나서 summary.md의
+    Δ≈0을 보고서야 드러난다.
+
+    반환: (loss, stats). stats는 로그 전용 — tic 항의 가중 전 값과 대상/위반 쌍 수.
+    게이트가 꺼져 있으면 전부 0이라 로그 포맷이 분기하지 않는다.
+    """
+    loss = masked_clip_loss(out.logits_per_image, pos)          # 이미지↔텍스트
+    stats = {"tic": 0.0, "n_eligible": 0, "n_violating": 0}
+    if t["img2img_weight"] > 0:
+        loss = loss + t["img2img_weight"] * supcon_loss(out.image_embeds, design_label)
+    if t.get("tic_weight", 0.0) > 0:
+        tic, n_el, n_vi = tic_loss(out.text_embeds, design_label, text_label,
+                                   margin=t.get("tic_margin", 0.9), return_stats=True)
+        loss = loss + t["tic_weight"] * tic
+        stats.update(tic=float(tic), n_eligible=n_el, n_violating=n_vi)
+    return loss, stats
 
 
 @torch.no_grad()
@@ -173,6 +210,11 @@ def main():
         t["grad_accum"] = args.grad_accum
     if args.epochs:
         t["epochs"] = args.epochs
+    if "tic_weight" in t:
+        # YAML에서 따옴표가 붙으면(tic_weight: "0.2") 문자열이라 곱셈이 학습 도중
+        # TypeError로 터진다. 몇 시간 뒤 첫 스텝이 아니라 지금 죽는 게 낫다.
+        t["tic_weight"] = float(t["tic_weight"])
+        t["tic_margin"] = float(t.get("tic_margin", 0.9))
     set_seed(t["seed"])
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[t["precision"]]
@@ -229,6 +271,12 @@ def main():
         else 0.5 * (1 + math.cos(math.pi * (s - warmup) / max(1, total_steps - warmup)))))
 
     mask_fn = t.get("mask_false_negatives", True)
+    # 게이트가 켜졌다는 사실 자체를 로그에 남긴다 — tic arm이 조용히 baseline으로
+    # 도는 사고는 학습 로그만 봐서는 baseline과 구분이 안 된다.
+    tic_on = t.get("tic_weight", 0.0) > 0
+    if tic_on:
+        print(f"[tic] ON — tic_weight={t['tic_weight']} tic_margin={t['tic_margin']} "
+              f"(margin 위로 붙은 서로 다른 제목 쌍만 밀어냄)")
     eval_batches = args.eval_batches or None
     os.makedirs(t["output_dir"], exist_ok=True)
     print(f"baseline: {evaluate(model, eval_loader, device, eval_batches)}")
@@ -263,13 +311,7 @@ def main():
             with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):
                 out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
                             pixel_values=enc["pixel_values"])
-                loss = masked_clip_loss(out.logits_per_image, pos)   # 이미지↔텍스트
-                if t["img2img_weight"] > 0:
-                    loss = loss + t["img2img_weight"] * supcon_loss(out.image_embeds, design_label)
-                if t.get("tic_weight", 0.0) > 0:
-                    loss = loss + t["tic_weight"] * tic_loss(
-                        out.text_embeds, design_label, text_label,
-                        margin=t.get("tic_margin", 0.9))
+                loss, lstats = compose_loss(out, pos, t, design_label, text_label)
                 loss = loss / t["grad_accum"]
 
             loss.backward()
@@ -281,8 +323,18 @@ def main():
                     logit_scale.clamp_(max=math.log(100))    # 온도 폭주 방지
                 step += 1
                 if step % t["log_every"] == 0:
-                    print(f"e{epoch} s{step}/{total_steps} loss={loss.item()*t['grad_accum']:.4f} "
-                          f"lr={sched.get_last_lr()[0]:.2e}")
+                    msg = (f"e{epoch} s{step}/{total_steps} "
+                           f"loss={loss.item()*t['grad_accum']:.4f} "
+                           f"lr={sched.get_last_lr()[0]:.2e}")
+                    if tic_on:
+                        # 총 손실만 찍으면 TIC 항은 보이지 않는다 — 현 설정에서 기여가
+                        # 1e-6 규모라 4째 자리를 못 움직인다. 항의 값과 쌍 수를 따로
+                        # 찍어야 "켜졌는데 효과가 없는지"와 "안 켜졌는지"가 구분된다.
+                        print(f"{msg} tic={lstats['tic']:.4e} "
+                              f"(×{t['tic_weight']}→{t['tic_weight']*lstats['tic']:.4e}) "
+                              f"위반/대상={lstats['n_violating']}/{lstats['n_eligible']}")
+                    else:
+                        print(msg)
                 if args.save_every and step % args.save_every == 0:
                     model.save_pretrained(os.path.join(t["output_dir"], "latest"))
                     print(f"  [checkpoint] step {step} -> latest")

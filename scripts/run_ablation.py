@@ -23,6 +23,8 @@
   all         전부 ON (= configs/lora_clip.yaml 기본값)
 
 선택 arm (--arms로 명시할 때만; LoRA 용량 계열은 'all' 레시피 위에 추가):
+  hobit       baseline + submodular greedy 배치 구성 (에폭마다 학습셋 전체 재인코딩 → 비쌈)
+  tic         baseline + 텍스트 모달 내부 대조 손실 (제목 중복 대응, 손실 축만 변경)
   pk-only     PK 샘플러만, 마스킹 없이 (유해 상호작용 실증용)
   all-mlp     all + LoRA target에 fc1,fc2 추가
   all-proj    all + visual/text projection 학습

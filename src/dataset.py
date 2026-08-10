@@ -204,8 +204,9 @@ class Collator:
         uniq_d = {d: i for i, d in enumerate(dict.fromkeys(design_ids))}
         enc["design_label"] = torch.tensor([uniq_d[d] for d in design_ids], dtype=torch.long)
         # 원문 제목이 같으면 같은 정수. TIC이 '밀어낼 수 없는 쌍'을 빼는 필터로만 쓴다.
-        # positive 판정에는 절대 쓰지 않는다 — 고유 제목이 141개뿐이라 그렇게 쓰면
-        # 서로 다른 디자인이 정답으로 묶여 학습 신호가 사라진다 (Phase 0에서 제거한 이유).
+        # positive 판정에는 절대 쓰지 않는다 — 고유 제목 28,859개 중 딱 한 번만 쓰인
+        # 것이 141개뿐일 만큼 제목이 겹쳐서('Shoe' 4,720건), 그렇게 쓰면 서로 다른
+        # 디자인이 정답으로 묶여 학습 신호가 사라진다 (Phase 0에서 제거한 이유).
         uniq_t = {}
         enc["text_label"] = torch.tensor(
             [uniq_t.setdefault(t, len(uniq_t)) for t in raw_texts], dtype=torch.long)
