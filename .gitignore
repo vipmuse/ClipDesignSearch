@@ -11,3 +11,6 @@ __pycache__/
 .cache/
 # 개인 로컬 설정(settings.local.json 등)
 .claude/
+
+# superpowers 브레인스토밍 목업 (로컬 전용)
+.superpowers/
