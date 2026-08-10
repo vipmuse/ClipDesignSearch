@@ -99,6 +99,23 @@ def eval_arm(name, adapter, cfg_path, args):
     run(cmd, os.path.join(registry.method_dir(name), "eval.log"))
 
 
+def index_arm(name, adapter, cfg_path, args):
+    """방법별 FAISS 인덱스 구축. 웹 비교(Phase 4~5)가 이 산출물을 쓴다."""
+    idx_dir = os.path.join(registry.method_dir(name), "index")
+    if os.path.exists(os.path.join(idx_dir, "index_meta.json")) and not args.force:
+        print(f"[{name}] 인덱스 존재 → 스킵")
+        return
+    cmd = [sys.executable, os.path.join("src", "embed.py"), "build",
+           "--config", cfg_path, "--adapter", adapter, "--index", idx_dir]
+    if args.data:
+        cmd += ["--data", args.data]
+    if args.image_root:
+        cmd += ["--image-root", args.image_root]
+    if args.limit:
+        cmd += ["--limit", str(args.limit)]
+    run(cmd, os.path.join(registry.method_dir(name), "index.log"))
+
+
 def report(arm_names):
     rows, missing = [], []
     for name in arm_names:
@@ -149,9 +166,11 @@ def main():
     ap.add_argument("--max-steps", type=int, default=0)
     ap.add_argument("--eval-batches", type=int, default=0)
     ap.add_argument("--image-root", default="", help="이미지 루트 (train/eval 동일 적용)")
+    ap.add_argument("--data", default="", help="학습·평가·인덱스 공통 데이터 (기본: config)")
     ap.add_argument("--quick", action="store_true", help="스모크: --limit 2000 --epochs 1")
     ap.add_argument("--force", action="store_true", help="기존 어댑터/평가 무시하고 재실행")
     ap.add_argument("--report-only", action="store_true")
+    ap.add_argument("--no-index", action="store_true", help="인덱스 빌드 생략")
     args = ap.parse_args()
     if args.quick:
         args.limit = args.limit or 2000
@@ -176,6 +195,8 @@ def main():
         else:
             adapter, cfg_path = train_arm(name, args)
             eval_arm(name, adapter, cfg_path, args)
+            if not args.no_index:
+                index_arm(name, adapter, cfg_path, args)
     report(names)
 
 

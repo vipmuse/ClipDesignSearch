@@ -15,8 +15,42 @@ import yaml
 from peft import PeftModel
 from transformers import AutoModel, AutoProcessor
 
-from dataset import load_records, preprocess_drawing
+from dataset import load_records, preprocess_drawing, take_limit
 from PIL import Image
+
+
+def index_fingerprint(cfg, adapter, data):
+    """인덱스가 어떤 모델·어댑터·데이터로 만들어졌는지 기록하는 지문.
+
+    방법이 여러 개면 'A 인덱스에 B 어댑터'로 검색하는 사고가 실제로 일어나고,
+    그건 에러 없이 결과만 조용히 틀어진다. encode_images의 ckpt_key와 같은 원칙.
+    """
+    return {
+        "model_id": cfg["model"]["model_id"],
+        "image_size": cfg["model"]["image_size"],
+        "adapter": str(adapter).replace("\\", "/"),
+        "data": str(data).replace("\\", "/"),
+        "method": cfg.get("method", {}).get("name", ""),
+    }
+
+
+def check_index_meta(index_dir, cfg, adapter, data):
+    """인덱스 지문이 현재 설정과 맞는지 확인. (정상여부, 사유) 반환.
+
+    서버는 이 결과로 방법별 활성 여부를 정한다 — 불일치 시 그 방법만 비활성시키고
+    서버 전체를 죽이지 않는다.
+    """
+    p = os.path.join(index_dir, "index_meta.json")
+    if not os.path.exists(p):
+        return False, f"index_meta.json 없음: {p}"
+    saved = json.load(open(p, encoding="utf-8"))
+    want = index_fingerprint(cfg, adapter, data)
+    for k, v in want.items():
+        if k == "method":                      # 이름은 참고용, 판정에 쓰지 않는다
+            continue
+        if saved.get(k) != v:
+            return False, f"{k} 불일치: 인덱스={saved.get(k)!r} 요청={v!r}"
+    return True, ""
 
 
 def load_tuned(cfg, adapter_dir, merge=True):
@@ -153,8 +187,9 @@ def main():
 
     if args.cmd == "build":
         records = load_records(args.data)
-        if args.limit:
-            records = records[:args.limit]
+        # 앞에서 자르면(contiguous slice) 인제스천 순서가 몰린 좁은 구간만 인덱싱된다.
+        # train/eval과 같은 seed로 take_limit을 써야 세 산출물이 같은 레코드 집합을 본다.
+        records = take_limit(records, args.limit, cfg["train"]["seed"])
         ckpt_dir = os.path.join(args.index, "ckpt")
         ckpt_key = {                              # 재개 가능 여부를 가르는 식별자
             "model_id": cfg["model"]["model_id"], "image_size": size,
@@ -172,6 +207,10 @@ def main():
         with open(os.path.join(args.index, "meta.jsonl"), "w", encoding="utf-8") as f:
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        with open(os.path.join(args.index, "index_meta.json"), "w", encoding="utf-8") as f:
+            fp = index_fingerprint(cfg, args.adapter, args.data)
+            fp.update(n_vectors=int(mat.shape[0]), dim=int(mat.shape[1]))
+            json.dump(fp, f, ensure_ascii=False, indent=2)
         import shutil
         shutil.rmtree(ckpt_dir, ignore_errors=True)   # 완료 후 체크포인트 정리
         print(f"built index: {mat.shape[0]} vectors -> {args.index}")
