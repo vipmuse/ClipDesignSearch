@@ -173,6 +173,7 @@ outputs/methods/<name>/
 | `pkmask-i2i` | +PK+마스킹+supcon | ①+③+img2img loss |
 | `all` | 전부 ON | 최종 레시피 |
 | `hobit` | baseline + submodular greedy 배치 구성 | ① 배치 구성의 원리적 대체 (ICML 2026) |
+| `tic` | baseline + 텍스트 모달 내부 대조 | ③ 제목 중복(27,412/28,859)이 이 데이터의 핵심 난점 |
 | (선택) `pk-only` | PK만, 마스킹 없이 | 유해 상호작용 실증 |
 | (선택) `all-mlp` / `all-proj` / `all-r32` | all + LoRA 확장 | ⑫ 계열, 최종 레시피 위 추가 기여 |
 
@@ -183,6 +184,7 @@ python scripts\run_ablation.py --report-only  # 완료된 결과로 표만 재�
 python scripts\run_ablation.py --arms baseline all all-r32 --epochs 3   # arm 선택
 python scripts\run_ablation.py --epochs 3 --no-index   # 인덱스 빌드 생략 (평가만 볼 때)
 python scripts\run_ablation.py --arms baseline hobit --epochs 3   # 배치 구성 단독 기여
+python scripts\run_ablation.py --arms baseline tic --epochs 3   # 손실 축 단독 기여
 ```
 
 - `hobit` arm은 다른 arm보다 비싸다: 에폭마다 학습 분할 전체(425,140장)를 1회 추론해

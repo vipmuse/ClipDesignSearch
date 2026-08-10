@@ -107,3 +107,21 @@ def test_hobit_하이퍼파라미터가_존재한다():
     assert h["hobit_pool"] >= h["batch_size"], "후보 풀이 배치보다 작으면 greedy가 무의미"
     assert h["hobit_penalty"] > 0
     assert h["hobit_refresh_every"] >= 1
+
+
+def test_tic은_baseline과_손실_항만_다르다():
+    """tic이 바꾸는 축은 손실 하나여야 Δ가 그 기여로 읽힌다."""
+    c = registry.resolve("tic")["train"]
+    b = registry.resolve("baseline")["train"]
+    five = ("pk_views", "locarno_aware", "mask_false_negatives", "augment", "img2img_weight")
+    assert [c[k] for k in five] == [b[k] for k in five]
+    assert c["tic_weight"] > 0
+    assert b.get("tic_weight", 0.0) == 0.0, "baseline에 TIC이 켜져 있으면 비교가 무의미"
+
+
+def test_tic과_hobit은_서로_다른_축을_바꾼다():
+    """두 방법이 같은 축을 건드리면 기여도가 섞인다."""
+    tic = registry.resolve("tic")["train"]
+    hobit = registry.resolve("hobit")["train"]
+    assert tic.get("sampler", "pk") != "hobit", "tic이 배치 구성까지 바꾸고 있다"
+    assert hobit.get("tic_weight", 0.0) == 0.0, "hobit이 손실까지 바꾸고 있다"
