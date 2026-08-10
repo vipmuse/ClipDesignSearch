@@ -18,8 +18,14 @@ _OVERRIDABLE = ("model", "lora", "train")     # 메서드 YAML이 덮어쓸 수 
 
 
 def deep_merge(base, over):
-    """over를 base 위에 재귀 병합한 새 dict. base는 변경하지 않는다."""
-    out = dict(base)
+    """over를 base 위에 재귀 병합한 새 dict. base와 그 하위 dict를 어떤 것도 공유하지 않는다.
+
+    `dict(base)`만으로 얕은 복사를 하면 over에 없는 키의 중첩 dict는 base와 같은
+    객체로 남아, 병합 결과를 나중에 수정하면 base가 조용히 오염된다(예: resolve()가
+    cfg["train"]["output_dir"]를 덮어쓸 때). base 쪽 dict 값도 빈 dict와 병합해
+    재귀적으로 복사함으로써 이 공유를 원천 차단한다.
+    """
+    out = {k: (deep_merge(v, {}) if isinstance(v, dict) else v) for k, v in base.items()}
     for k, v in over.items():
         out[k] = deep_merge(out[k], v) \
             if isinstance(v, dict) and isinstance(out.get(k), dict) else v
