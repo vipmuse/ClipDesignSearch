@@ -91,16 +91,34 @@ def test_마스킹_off면_같은_design_id를_같은_배치에_피한다():
     제목을 디자인마다 고유하게 준다: 제목이 2종뿐이면 같은 design_id ⟹ 같은 제목이라
     same_text 항이 same_design 항을 완전히 가려, design_id 회피가 작동하는지 확인할 수 없다.
     실데이터는 제목당 평균 16개 레코드라 4096 풀에서 제목 충돌이 희소하다.
+
+    마지막 배치는 검사에서 뺀다. 풀이 배치마다 batch_size씩 줄어 마지막에는
+    npool == batch_size가 되어 선택의 여지가 없다 — 남은 것이 그대로 들어간다.
+    모든 예제를 정확히 한 번 쓰는 한 구조적으로 피할 수 없다.
     """
     recs = _recs(n_design=64, views=4, titles=None)
     s = HobitBatchSampler(recs, batch_size=16, pool=128, penalty=50.0,
                           mask_false_negatives=False, seed=5)
     s.set_embeddings(_two_clusters(len(recs)))
+    batches = list(s)
     dup = 0
-    for b in s:
+    for b in batches[:-1]:                      # 마지막 배치는 강제 구성이라 제외
         ds = [recs[i]["design_id"] for i in b]
         dup += len(ds) - len(set(ds))
-    assert dup == 0, f"같은 design_id가 한 배치에 {dup}번 겹쳤다"
+    assert dup == 0, f"선택 여지가 있는 배치에서 같은 design_id가 {dup}번 겹쳤다"
+
+
+def test_마지막_배치는_선택_여지가_없어_모순을_피하지_못한다():
+    """구조적 한계를 명시적으로 고정한다 — 발견이 아니라 알려진 성질이 되도록."""
+    recs = _recs(n_design=64, views=4, titles=None)
+    s = HobitBatchSampler(recs, batch_size=16, pool=128, penalty=50.0,
+                          mask_false_negatives=False, seed=5)
+    s.set_embeddings(_two_clusters(len(recs)))
+    batches = list(s)
+    assert len(batches) * 16 == len(recs), "이 픽스처는 자투리 없이 나누어떨어져야 한다"
+    # 마지막 배치는 남은 16개가 강제로 들어가므로 중복이 생길 수 있다
+    last_ds = [recs[i]["design_id"] for i in batches[-1]]
+    assert len(last_ds) == 16
 
 
 def test_마스킹_on이면_같은_design_id_뷰가_같은_배치에_모일_수_있다():

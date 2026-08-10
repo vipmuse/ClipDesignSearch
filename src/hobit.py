@@ -25,6 +25,10 @@ class HobitBatchSampler:
       모순이 아니다. 다른 design_id인데 텍스트가 같은 쌍만 모순이다.
     - mask_false_negatives=False — 대각선만 positive라 같은 design_id의 다른 뷰도
       네거티브로 밀린다. 둘 다 모순이다.
+
+    한계: 에폭의 마지막 배치는 남은 인덱스가 정확히 batch_size개라 선택의 여지가 없다.
+    모순이 있어도 그대로 들어간다. 모든 예제를 정확히 한 번 쓰는 한 구조적으로
+    피할 수 없으며, 실데이터(에폭당 수천 배치)에서는 무시할 수준이다.
     """
 
     def __init__(self, records, batch_size, pool=4096, penalty=10.0,
