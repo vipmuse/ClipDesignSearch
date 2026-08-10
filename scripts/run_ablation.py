@@ -21,6 +21,12 @@
   pkmask      + PK 샘플러 + 마스킹 (세트 — PK 단독은 false negative를 늘려 유해)
   pkmask-i2i  + PK + 마스킹 + img2img supcon (supcon은 PK 없이는 미발화)
   all         전부 ON (= configs/lora_clip.yaml 기본값)
+
+선택 arm (--arms로 명시할 때만; LoRA 용량 계열은 'all' 레시피 위에 추가):
+  pk-only     PK 샘플러만, 마스킹 없이 (유해 상호작용 실증용)
+  all-mlp     all + LoRA target에 fc1,fc2 추가
+  all-proj    all + visual/text projection 학습
+  all-r32     all + LoRA rank 16→32 (alpha 64)
 """
 import argparse
 import json

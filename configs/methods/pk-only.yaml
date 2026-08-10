@@ -1,0 +1,10 @@
+name: pk-only
+description: "PK 샘플러만, 마스킹 없이 (유해 상호작용 실증용)"
+extends: configs/lora_clip.yaml
+data: {builder: shared, pairs: data/pairs.jsonl}
+train:
+  pk_views: 4
+  locarno_aware: true
+  mask_false_negatives: false
+  augment: false
+  img2img_weight: 0.0

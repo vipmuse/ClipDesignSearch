@@ -1,0 +1,12 @@
+name: all-mlp
+description: "all + LoRA target에 fc1,fc2 추가"
+extends: configs/lora_clip.yaml
+data: {builder: shared, pairs: data/pairs.jsonl}
+train:
+  pk_views: 4
+  locarno_aware: true
+  mask_false_negatives: true
+  augment: true
+  img2img_weight: 0.5
+lora:
+  target_modules: ["q_proj", "k_proj", "v_proj", "out_proj", "fc1", "fc2"]

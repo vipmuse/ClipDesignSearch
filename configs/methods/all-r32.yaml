@@ -1,0 +1,13 @@
+name: all-r32
+description: "all + LoRA rank 16→32 (alpha 64)"
+extends: configs/lora_clip.yaml
+data: {builder: shared, pairs: data/pairs.jsonl}
+train:
+  pk_views: 4
+  locarno_aware: true
+  mask_false_negatives: true
+  augment: true
+  img2img_weight: 0.5
+lora:
+  r: 32
+  alpha: 64
