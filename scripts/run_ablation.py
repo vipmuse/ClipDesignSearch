@@ -45,15 +45,22 @@ DEFAULT_ARMS = ["baseline", "aug", "mask", "pkmask", "pkmask-i2i", "all"]
 
 
 def run(cmd, log_path):
-    """서브프로세스 실행: 콘솔 에코 + arm별 로그 파일 동시 기록."""
+    """서브프로세스 실행: 콘솔 에코 + arm별 로그 파일 동시 기록.
+
+    한국어 로그가 자식에서 cp949로 나가면 부모의 utf-8 디코딩이 깨진다 — 자식의
+    stdout 인코딩을 PYTHONIOENCODING으로 강제해 소스에서부터 utf-8이 되게 한다.
+    """
     print(">>", " ".join(cmd), flush=True)
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     with open(log_path, "a", encoding="utf-8") as log:
         p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, text=True,
-                             encoding="utf-8", errors="replace")
+                             encoding="utf-8", errors="replace", env=env)
         for line in p.stdout:
-            print("   " + line.rstrip(), flush=True)
-            log.write(line)
+            log.write(line)                       # 로그 파일은 utf-8 — 원본 그대로 먼저 보존
+            enc = sys.stdout.encoding or "utf-8"
+            safe = line.rstrip().encode(enc, errors="replace").decode(enc, errors="replace")
+            print("   " + safe, flush=True)        # 콘솔 코드페이지가 못 그리는 문자로 죽지 않게
         p.wait()
     if p.returncode != 0:
         raise RuntimeError(f"failed (exit {p.returncode}): {' '.join(cmd)}")
