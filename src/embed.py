@@ -20,10 +20,14 @@ from PIL import Image
 
 
 def load_tuned(cfg, adapter_dir, merge=True):
+    """adapter_dir이 None/'none'이면 베이스 모델 그대로 (튜닝 전 베이스라인 평가용)."""
     base = AutoModel.from_pretrained(cfg["model"]["model_id"], attn_implementation="sdpa")
-    model = PeftModel.from_pretrained(base, adapter_dir)
-    if merge:
-        model = model.merge_and_unload()   # 어댑터를 백본에 병합 → 추론 지연 0
+    if adapter_dir and str(adapter_dir).lower() not in ("none", "base"):
+        model = PeftModel.from_pretrained(base, adapter_dir)
+        if merge:
+            model = model.merge_and_unload()   # 어댑터를 백본에 병합 → 추론 지연 0
+    else:
+        model = base
     model.eval()
     proc = AutoProcessor.from_pretrained(cfg["model"]["model_id"])
     return model, proc
