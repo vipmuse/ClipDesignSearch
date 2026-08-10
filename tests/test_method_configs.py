@@ -2,6 +2,7 @@
 
 YAML 오타나 extends 경로 오류를 학습 몇 시간 뒤가 아니라 지금 잡는다.
 """
+import argparse
 import os
 import sys
 
@@ -10,7 +11,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import registry  # noqa: E402
-from run_ablation import DEFAULT_ARMS  # noqa: E402
+from run_ablation import DEFAULT_ARMS, is_trained  # noqa: E402
 
 METHODS = registry.list_methods()
 
@@ -47,6 +48,37 @@ def _knobs(name):
 def test_baseline은_모든_개선이_꺼져있다():
     """비교의 기준점이 은근슬쩍 켜져 있으면 모든 Δ가 무의미해진다."""
     assert _knobs("baseline") == OFF, f"baseline이 기준점이 아니다: {_knobs('baseline')}"
+
+
+# ── is_trained: base와 baseline이 "학습됨" 판정을 공유하는지 고정 ──
+# (회귀 재발 방지: run_ablation.py의 base 분기가 이 predicate 없이 따로 조건을
+#  적으면, --force 재실행이나 학습 중단 시 base와 baseline이 서로 다른
+#  config.resolved.yaml을 보게 되어 비교표의 기준점이 조용히 틀어진다.)
+
+def test_is_trained는_config만_있고_어댑터가_없으면_False(tmp_path, monkeypatch):
+    """학습이 중단된 상태를 고정한다: config.resolved.yaml은 학습 시작 전에
+    쓰이므로, 크래시 직후엔 config만 있고 final/adapter_config.json은 없을 수
+    있다. 이때 is_trained가 True를 주면(=학습됐다고 착각하면) 다음 실행에서
+    base가 이 미완성 config를 '학습된 baseline의 저장본'으로 재사용해버린다."""
+    monkeypatch.setattr(registry, "OUT_ROOT", str(tmp_path / "outputs" / "methods"))
+    d = registry.method_dir("baseline")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "config.resolved.yaml"), "w", encoding="utf-8") as f:
+        f.write("train: {}\n")
+    assert not os.path.exists(os.path.join(d, "final", "adapter_config.json"))
+
+    assert is_trained("baseline", argparse.Namespace(force=False)) is False
+
+
+def test_is_trained는_어댑터가_있고_force가_아니면_True(tmp_path, monkeypatch):
+    monkeypatch.setattr(registry, "OUT_ROOT", str(tmp_path / "outputs" / "methods"))
+    final = os.path.join(registry.method_dir("baseline"), "final")
+    os.makedirs(final, exist_ok=True)
+    with open(os.path.join(final, "adapter_config.json"), "w", encoding="utf-8") as f:
+        f.write("{}")
+
+    assert is_trained("baseline", argparse.Namespace(force=False)) is True
+    assert is_trained("baseline", argparse.Namespace(force=True)) is False
 
 
 def test_기본_arm들은_서로_다른_레시피다():

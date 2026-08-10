@@ -80,6 +80,21 @@ def diff_keys(saved, cur, prefix=""):
     return out
 
 
+def is_trained(name, args):
+    """arm의 어댑터가 이미 학습되어 있는지 (--force면 무조건 False).
+
+    train_arm과 main()의 base 분기가 반드시 이 함수 하나로 판단해야 한다. 두 곳이
+    따로 조건을 적으면 어긋나기 쉽다 — 예를 들어 --force로 baseline을 재학습하는
+    문서화된 복구 경로에서, base가 먼저 실행되며 아직 갱신 전인 옛 저장본을 읽고
+    baseline은 새로 학습하면, base와 baseline이 서로 다른 홀드아웃/설정을 보게
+    되어 비교표의 기준점(base 행)이 조용히 틀어진다. 학습 도중 중단된 경우도
+    같다 — config.resolved.yaml은 학습 시작 전에 쓰이므로, 어댑터 없이 config만
+    남을 수 있다(이때도 False가 나와야 한다).
+    """
+    adapter = os.path.join(registry.method_dir(name), "final")
+    return os.path.exists(os.path.join(adapter, "adapter_config.json")) and not args.force
+
+
 def train_arm(name, args):
     """resolved config와 데이터 포인터를 못박고 학습. (어댑터 경로, config 경로) 반환.
 
@@ -92,7 +107,7 @@ def train_arm(name, args):
     adapter = os.path.join(adir, "final")
     cfg = registry.resolve(name)
     cfg_path = resolved_path(name)
-    trained = os.path.exists(os.path.join(adapter, "adapter_config.json")) and not args.force
+    trained = is_trained(name, args)
 
     if trained and os.path.exists(cfg_path):
         stored = yaml.safe_load(open(cfg_path, encoding="utf-8")) or {}
@@ -234,10 +249,15 @@ def main():
         print(f"\n{'='*60}\n[{name}]\n{'='*60}")
         os.makedirs(registry.method_dir(name), exist_ok=True)
         if name == "base":
-            # 튜닝 전 베이스 모델: 학습 없이 평가만. baseline의 resolved를 기준 config로 쓴다
-            # baseline이 이미 학습돼 있으면 그 저장본을 쓴다 — 여기서 새로 쓰면
-            # baseline의 재현 기록이 base arm 실행만으로 갱신돼 버린다
-            base_cfg = (resolved_path("baseline") if os.path.exists(resolved_path("baseline"))
+            # 튜닝 전 베이스 모델: 학습 없이 평가만. baseline의 resolved를 기준 config로 쓴다.
+            # "이미 학습됨" 판정은 train_arm과 반드시 같은 predicate(is_trained)를 써야
+            # 한다 — base는 names 목록 맨 앞이라 baseline보다 먼저 실행되므로, 조건이
+            # 어긋나면(--force 재실행, 혹은 학습 중단으로 config만 남고 어댑터가 없는
+            # 경우) base와 baseline이 서로 다른 config.resolved.yaml을 보게 되어
+            # 비교표의 기준점이 조용히 틀어진다.
+            _baseline_cfg_path = resolved_path("baseline")
+            base_cfg = (_baseline_cfg_path
+                        if is_trained("baseline", args) and os.path.exists(_baseline_cfg_path)
                         else registry.write_resolved("baseline"))
             eval_arm(name, "none", base_cfg, args)
         else:
