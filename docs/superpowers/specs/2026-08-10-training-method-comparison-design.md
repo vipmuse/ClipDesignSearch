@@ -150,7 +150,9 @@ GradCache로 유효 배치를 32 → 256으로 확대한다. 두 번의 forward(
 > 있으나, s16은 백본 크기 자체가 huge와 다르다. 이를 쓰면 해상도와 파라미터 용량이 함께
 > 바뀌어 "한 축만 변경" 원칙이 깨지고 `loracap`과 기여도가 뒤섞인다. 해상도 축을 분리하려면
 > 백본 계열을 huge로 고정해야 한다. 로컬에는 `huge-quickgelu`(224)만 있으므로
-> `scripts/download_model.py --model-id <huge-378 계열>`로 추가 다운로드가 필요하다.
+> `scripts/download_model.py --model-id facebook/metaclip-2-worldwide-huge-378`로 추가
+> 다운로드가 필요하다 (2026-08 확인: 해당 저장소 존재, 원 구현의 ViT-H-14-378-worldwide).
+> `image_size`는 378로 맞춘다 — 384가 아니다.
 
 `loracap`은 `target_modules`에 `fc1,fc2` 추가, `train_projections: true`, `r: 32`/`alpha: 64`.
 
@@ -331,7 +333,10 @@ Phase 0~2는 방법 구현과 무관하게 선행되어야 하고, Phase 4~5는 
 
 
 - HOBIT 전문 미확보 (§1.3). `hobit_score` 선택자로 분리해 논문 입수 시 교체한다.
-- `hires384`의 정확한 huge-378 HF 저장소 id는 Phase 3 착수 시 확인해 확정한다. 로컬에는
+- ~~`hires384`의 huge-378 저장소 id 확인~~ **해소(2026-08-11)**: `facebook/metaclip-2-worldwide-huge-378`이
+  존재한다. 같은 ViT-H 계열이므로 해상도 축만 바뀌며, 방법 구성을 바꿀 필요가 없다.
+  `image_size`는 378. 아래 원문은 기록용으로 남긴다.
+- (원문) `hires384`의 정확한 huge-378 HF 저장소 id는 Phase 3 착수 시 확인해 확정한다. 로컬에는
   224 모델만 있다. huge 계열 378 변형을 받을 수 없으면 이 방법은 축이 오염되므로
   (§3.4) 다른 방법으로 대체한다.
 - ACCURACY.md가 FG-CLIP 2를 한국어 관련 베이스 모델 후보로 기술한 부분은 그 모델이
