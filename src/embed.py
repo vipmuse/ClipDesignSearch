@@ -66,12 +66,44 @@ def encode_text(model, proc, texts, device, batch_size=256):
 
 
 @torch.no_grad()
-def encode_images(model, proc, records, image_root, size, device, batch_size=64):
-    """레코드들을 배치로 인코딩 (GPU 효율). 열 수 없는 이미지는 건너뜀."""
+def encode_images(model, proc, records, image_root, size, device, batch_size=64,
+                  ckpt_dir=None, ckpt_every=20000, ckpt_key=None):
+    """레코드들을 배치로 인코딩 (GPU 효율). 열 수 없는 이미지는 건너뜀.
+    ckpt_dir 지정 시 ckpt_every장마다 중간 저장 → 중단돼도 이어서 재개.
+    ckpt_key(모델/데이터 식별자)가 다르면 남은 체크포인트를 버리고 처음부터 —
+    다른 어댑터·데이터로 만든 벡터가 섞여 조용히 오염된 인덱스가 되는 것을 방지."""
     from tqdm import tqdm
     Image.MAX_IMAGE_PIXELS = None          # 초대형 도면의 DecompressionBomb 예외 방지
     vecs, kept = [], []
     buf, buf_idx = [], []
+    start = 0
+
+    emb_p = kept_p = None
+    if ckpt_dir:
+        os.makedirs(ckpt_dir, exist_ok=True)
+        emb_p = os.path.join(ckpt_dir, "ckpt_emb.npy")
+        kept_p = os.path.join(ckpt_dir, "ckpt_kept.json")
+        if os.path.exists(emb_p) and os.path.exists(kept_p):
+            with open(kept_p, encoding="utf-8") as f:
+                saved = json.load(f)
+            if saved.get("key") != ckpt_key:                 # 어댑터/데이터/limit 불일치
+                print("[ckpt] 설정이 달라 기존 체크포인트를 폐기하고 처음부터", flush=True)
+            else:
+                vecs.append(np.load(emb_p))
+                kept = saved["kept"]
+                start = (max(kept) + 1) if kept else 0
+                print(f"[ckpt] {len(kept)}장 복원, {start}번부터 재개", flush=True)
+
+    def save_ckpt():
+        if not emb_p:
+            return
+        mat = np.concatenate(vecs).astype("float32")
+        np.save(emb_p + ".tmp.npy", mat)                     # 저장 중 사망해도 원본 보존
+        os.replace(emb_p + ".tmp.npy", emb_p)
+        with open(kept_p + ".tmp", "w", encoding="utf-8") as f:
+            json.dump({"key": ckpt_key, "kept": kept}, f)
+        os.replace(kept_p + ".tmp", kept_p)
+        vecs.clear(); vecs.append(mat)                       # 조각 누적 방지
 
     def flush():
         if buf:
@@ -79,7 +111,9 @@ def encode_images(model, proc, records, image_root, size, device, batch_size=64)
             kept.extend(buf_idx)
             buf.clear(); buf_idx.clear()
 
-    for i, r in enumerate(tqdm(records, desc="encoding")):
+    last_saved = len(kept)
+    for i, r in enumerate(tqdm(records[start:], desc="encoding", initial=start,
+                               total=len(records)), start=start):
         try:                                # 로딩·디코딩 오류를 개별 격리
             im = Image.open(os.path.join(image_root, r["image"]))
             im.load()
@@ -89,6 +123,9 @@ def encode_images(model, proc, records, image_root, size, device, batch_size=64)
             continue
         if len(buf) >= batch_size:
             flush()
+            if ckpt_dir and len(kept) - last_saved >= ckpt_every:
+                save_ckpt()
+                last_saved = len(kept)
     flush()
     mat = np.concatenate(vecs).astype("float32") if vecs else np.zeros((0, 1), "float32")
     return mat, kept
@@ -118,7 +155,15 @@ def main():
         records = load_records(args.data)
         if args.limit:
             records = records[:args.limit]
-        mat, kept = encode_images(model, proc, records, args.image_root, size, device)
+        ckpt_dir = os.path.join(args.index, "ckpt")
+        ckpt_key = {                              # 재개 가능 여부를 가르는 식별자
+            "model_id": cfg["model"]["model_id"], "image_size": size,
+            "adapter": str(args.adapter), "data": args.data,
+            "image_root": args.image_root, "limit": args.limit,
+            "n_records": len(records),
+        }
+        mat, kept = encode_images(model, proc, records, args.image_root, size, device,
+                                  ckpt_dir=ckpt_dir, ckpt_key=ckpt_key)
         records = [records[i] for i in kept]      # 인코딩 성공한 레코드만 meta에 저장
         index = faiss.IndexFlatIP(mat.shape[1])   # 정규화 벡터 → 내적 = 코사인
         index.add(mat)
@@ -127,6 +172,8 @@ def main():
         with open(os.path.join(args.index, "meta.jsonl"), "w", encoding="utf-8") as f:
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        import shutil
+        shutil.rmtree(ckpt_dir, ignore_errors=True)   # 완료 후 체크포인트 정리
         print(f"built index: {mat.shape[0]} vectors -> {args.index}")
 
     elif args.cmd == "search":
