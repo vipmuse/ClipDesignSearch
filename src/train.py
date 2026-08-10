@@ -64,6 +64,32 @@ def supcon_loss(feats, labels, temperature=0.1):
     return -mean_log_prob[valid].mean()
 
 
+def tic_loss(text_embeds, design_label, text_label, margin=0.9):
+    """텍스트 모달 내부 대조(TIC). 가까이 붙은 '서로 다른' 제목 쌍만 밀어낸다.
+
+    이 데이터의 핵심 난점은 제목이 거의 다 겹친다는 것이다 — 고유 제목 28,859개 중
+    27,412개(레코드의 96.7%)가 다른 제목과 헤드 명사를 공유한다(2026-08 실측).
+    'Container'와 'Beverage container'가 텍스트 공간에서 붙어 있으면 텍스트 검색이
+    둘을 가르지 못한다.
+
+    두 종류를 대상에서 뺀다:
+    - 제목이 완전히 같은 쌍: 같은 문자열 → 같은 토큰 → 정확히 같은 벡터라 분리가
+      불가능하다. 억지로 밀면 인코더만 망가진다.
+    - 같은 design_id 쌍: 같은 디자인의 뷰는 붙어 있는 것이 맞다.
+
+    margin 이하로 떨어진 쌍은 이미 충분히 구분되므로 손실에 기여하지 않는다.
+    """
+    t = F.normalize(text_embeds, dim=-1)
+    sim = t @ t.t()
+    B = t.size(0)
+    upper = torch.triu(torch.ones(B, B, dtype=torch.bool, device=t.device), diagonal=1)
+    eligible = upper & (design_label[:, None] != design_label[None, :]) \
+                     & (text_label[:, None] != text_label[None, :])
+    if not eligible.any():
+        return text_embeds.new_tensor(0.0)
+    return (sim[eligible] - margin).clamp(min=0).mean()
+
+
 @torch.no_grad()
 def _encode_for_hobit(model, processor, imgs, device, dtype):
     """HOBIT 배치 구성용 이미지 임베딩 [B, D] (L2 정규화). 증강 없이 결정적으로."""
