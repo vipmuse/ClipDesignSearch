@@ -130,9 +130,47 @@ hardness를 정의해 greedy로 배치를 채운다.
 
 ### 3.2 `tic`
 
-FG-CLIP 2의 Textual Intra-modal Contrastive 계열. 배치 내 텍스트 임베딩끼리 대조하되,
-유사도가 지나치게 높은(= 사실상 같은 물품명칭) 쌍은 네거티브에서 제외한다. 이미지-텍스트
-대조만으로는 구분되지 않는 "거의 같은 제목, 다른 디자인"을 텍스트 쪽에서 밀어낸다.
+FG-CLIP 2의 Textual Intra-modal Contrastive 계열. 배치 안에서 **같은 물품군에 속하지만
+서로 다른 물품**인 제목 쌍을 텍스트 공간에서 밀어낸다. `Pizza box`와 `Storage box`가
+붙어 있으면 텍스트 검색이 둘을 가르지 못한다.
+
+**선택 규칙은 두 축을 함께 쓴다 (2026-08-11 실측으로 확정).**
+
+1. **같은 헤드명사** (제목의 마지막 단어) — 관련 물품군으로 좁힌다.
+2. **코사인 < 상한 0.92** — 같은 물품의 표기 차이를 제외한다.
+3. 문자열이 같은 쌍, 같은 `design_id` 쌍 제외.
+
+밀어내는 강도는 바닥값(floor) 위의 hinge: `(cos − floor).clamp(min=0)`, floor는 같은
+헤드명사 쌍 분포의 중앙값 0.75.
+
+> **왜 스칼라 임계값 하나로는 안 되는가 — 실패한 1차 설계의 기록.**
+> 초안은 "코사인이 margin(0.9)보다 높은 쌍을 밀어낸다"였고, 이는 실측으로 반증됐다.
+> 베이스 모델로 잰 코사인은 설계가 가정한 순서로 정렬되지 않는다:
+> `Container`/`Beverage container` 0.786, `Shoe`/`Ballet shoe` 0.801 — 목표 쌍인데
+> margin 아래라 절대 발동하지 않는다. 반면 무관한 `Shoe`/`Bottle`은 0.867로 그보다 높고,
+> margin을 넘는 것은 `Eyeglasses`/`Glasses` 0.951, `Wash basin`/`Washbasin` 0.968처럼
+> **붙어 있어야 맞는** 쌍들이다. 그 결과 TIC 항은 CLIP 손실 3.5에 대해 4e-6을 기여했다
+> (배치당 대상 496쌍 중 0.35쌍만 발동). 가중치를 올리면 동의어를 떼어놓고, margin을 내리면
+> 전체 쌍의 30%가 들어와 일반 분산 정규화로 변질된다. 하나의 스칼라에 두 가지 일(물품군
+> 선택 + 표기차 배제)을 시킨 것이 원인이었다.
+
+**실측 근거** (베이스 모델, 같은 헤드명사 쌍 40만 표본):
+
+```
+분포: p50 0.765 · p75 0.824 · p90 0.870 · p95 0.896 · p99 0.950 · ≥0.92는 2.45%
+상한이 걸러낼 최상위: 'Portable Bluetooth speaker'/'Portable bluetooth speaker' 0.997,
+  'Clothing hanger'/'Clothes hanger' 0.996, 'Handheld'/'Hand-held vacuum cleaner' 0.994
+  → 전부 같은 물품의 표기 차이
+0.78~0.88 구간(목표군): 'Wine carrier'/'Pet carrier', 'Pizza box'/'Storage box',
+  'Button panel'/'Wall panel', 'Flow sensor'/'Sensor', 'Vehicle seat'/'Collapsible seat'
+배치(32) 대상 쌍: 평균 3.03 (중앙값 2, 최대 16), 0개인 배치 10.3%
+  — 기존 규칙 495.7쌍 대비 165배 감소. .mean()의 분모가 줄어 쌍당 가중치가 그만큼 커진다.
+```
+
+**가중치는 실측 후 정한다.** CLIP 항은 `logit_scale` 증폭을 받지만 hinge는 받지 않아,
+전체 쌍이 위반하는 극단에서도 `tic_weight 0.2`의 그래디언트 비는 0.004에 그쳤다. 첫 실행은
+반드시 `--max-steps 5 --log-every 1`로 돌려 로그의 TIC 항·대상 쌍 수·위반 쌍 수를 보고
+가중치를 정한다 (로깅은 구현되어 있다).
 
 ### 3.3 `bigbatch`
 
