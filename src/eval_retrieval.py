@@ -20,7 +20,7 @@ import numpy as np
 import torch
 import yaml
 
-from dataset import load_records, split_by_design
+from dataset import load_records, split_by_design, take_limit
 from embed import encode_images, encode_text, load_tuned
 from metrics import MetricAccumulator, rank_metrics
 
@@ -66,21 +66,20 @@ def main():
     ap.add_argument("--adapter", required=True, help="어댑터 경로 또는 'none'(베이스라인)")
     ap.add_argument("--data", default=None, help="기본: config의 data_path")
     ap.add_argument("--image-root", default="data")
-    ap.add_argument("--eval-ratio", type=float, default=0, help="기본: config eval_ratio")
-    ap.add_argument("--seed", type=int, default=0, help="기본: config seed")
-    ap.add_argument("--limit", type=int, default=0, help="스모크: 전체 레코드 앞 N개만")
+    ap.add_argument("--eval-ratio", type=float, default=None, help="기본: config eval_ratio")
+    ap.add_argument("--seed", type=int, default=None, help="기본: config seed")
+    ap.add_argument("--limit", type=int, default=0, help="스모크: 레코드 N개만 사용")
     ap.add_argument("--out", default="outputs/eval", help="결과 JSON 저장 디렉터리")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(open(args.config, encoding="utf-8"))
     t = cfg["train"]
-    ratio = args.eval_ratio or t["eval_ratio"]
-    seed = args.seed or t["seed"]
+    ratio = args.eval_ratio if args.eval_ratio is not None else t["eval_ratio"]
+    seed = args.seed if args.seed is not None else t["seed"]
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     records = load_records(args.data or t["data_path"])
-    if args.limit:
-        records = records[:args.limit]
+    records = take_limit(records, args.limit, seed)        # train.py와 동일 seed → 동일 표본
     _, eval_recs = split_by_design(records, ratio, seed)   # train.py와 동일 분할
     print(f"holdout: {len(eval_recs)} records "
           f"({len(set(r.get('design_id') for r in eval_recs))} designs)")

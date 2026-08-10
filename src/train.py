@@ -20,7 +20,7 @@ import torch.nn.functional as F
 import yaml
 from torch.utils.data import DataLoader
 
-from dataset import Collator, PairDataset, PKBatchSampler, load_records, split_by_design
+from dataset import Collator, PairDataset, PKBatchSampler, load_records, split_by_design, take_limit
 from model import build_model
 
 
@@ -139,8 +139,7 @@ def main():
     model.to(device)
 
     records = load_records(t["data_path"])
-    if args.limit:
-        records = records[:args.limit]
+    records = take_limit(records, args.limit, t["seed"])
     # design_id 단위 분할: 같은 디자인의 뷰가 train/eval 양쪽에 갈리는 누수 방지
     train_recs, eval_recs = split_by_design(records, t["eval_ratio"], t["seed"])
     print(f"split by design_id: train {len(train_recs)} / eval {len(eval_recs)} records")

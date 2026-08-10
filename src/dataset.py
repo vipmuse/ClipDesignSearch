@@ -26,6 +26,19 @@ def load_records(jsonl_path):
     return records
 
 
+def take_limit(records, limit, seed):
+    """--limit 축소 표본. 앞에서 자르면 인제스천 순서(특허번호·로카르노가 몰린 구간)만
+    보게 되므로 seed 고정 셔플 후 자른다. 원래 순서는 유지해 재현 시 진단이 쉽도록 한다.
+
+    train.py와 eval_retrieval.py가 같은 seed로 이 함수를 써야 동일 표본을 본다.
+    """
+    if not limit or limit >= len(records):
+        return records
+    idx = list(range(len(records)))
+    random.Random(seed).shuffle(idx)
+    return [records[i] for i in sorted(idx[:limit])]
+
+
 def split_by_design(records, eval_ratio, seed):
     """design_id 단위 train/eval 분할.
 
