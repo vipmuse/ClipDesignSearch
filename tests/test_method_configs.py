@@ -90,3 +90,20 @@ def test_기본_arm들은_서로_다른_레시피다():
         k = _knobs(name)
         assert k not in seen, f"{name}과 {seen[k]}가 같은 레시피로 resolve된다: {dict(zip(KNOBS, k))}"
         seen[k] = name
+
+
+def test_hobit은_baseline과_sampler만_다르다():
+    """hobit이 바꾸는 축은 배치 구성 하나여야 Δ가 그 기여로 읽힌다."""
+    h = registry.resolve("hobit")["train"]
+    b = registry.resolve("baseline")["train"]
+    five = ("pk_views", "locarno_aware", "mask_false_negatives", "augment", "img2img_weight")
+    assert [h[k] for k in five] == [b[k] for k in five]
+    assert h["sampler"] == "hobit"
+    assert b.get("sampler", "pk") != "hobit"
+
+
+def test_hobit_하이퍼파라미터가_존재한다():
+    h = registry.resolve("hobit")["train"]
+    assert h["hobit_pool"] >= h["batch_size"], "후보 풀이 배치보다 작으면 greedy가 무의미"
+    assert h["hobit_penalty"] > 0
+    assert h["hobit_refresh_every"] >= 1

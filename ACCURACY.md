@@ -172,6 +172,7 @@ outputs/methods/<name>/
 | `pkmask` | +PK 샘플러+마스킹 | ①+③ (세트 — PK 단독은 유해) |
 | `pkmask-i2i` | +PK+마스킹+supcon | ①+③+img2img loss |
 | `all` | 전부 ON | 최종 레시피 |
+| `hobit` | baseline + submodular greedy 배치 구성 | ① 배치 구성의 원리적 대체 (ICML 2026) |
 | (선택) `pk-only` | PK만, 마스킹 없이 | 유해 상호작용 실증 |
 | (선택) `all-mlp` / `all-proj` / `all-r32` | all + LoRA 확장 | ⑫ 계열, 최종 레시피 위 추가 기여 |
 
@@ -181,6 +182,7 @@ python scripts\run_ablation.py --epochs 3     # 실전 ablation (권장 시작�
 python scripts\run_ablation.py --report-only  # 완료된 결과로 표만 재생성
 python scripts\run_ablation.py --arms baseline all all-r32 --epochs 3   # arm 선택
 python scripts\run_ablation.py --epochs 3 --no-index   # 인덱스 빌드 생략 (평가만 볼 때)
+python scripts\run_ablation.py --arms baseline hobit --epochs 3   # 배치 구성 단독 기여
 ```
 
 - 학습 1회가 오래 걸리므로 `--epochs 3`으로 좁힌 뒤, 유망한 조합만 풀 epoch 재학습 권장.
