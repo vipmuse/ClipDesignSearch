@@ -122,12 +122,17 @@ def test_마지막_배치는_선택_여지가_없어_모순을_피하지_못한�
 
 
 def test_마스킹_on이면_같은_design_id_뷰가_같은_배치에_모일_수_있다():
-    """마스킹이 켜지면 같은 design_id는 positive로 처리되므로 회피 대상이 아니다."""
+    """마스킹이 켜지면 같은 design_id는 positive로 처리되므로 회피 대상이 아니다.
+
+    마지막 배치는 제외한다 — 선택 여지가 없어 mask_fn 값과 무관하게 중복이 생기므로,
+    포함하면 _contra의 mask on 분기가 망가져도 이 단언이 통과할 수 있다.
+    """
     recs = _recs(n_design=64, views=4, titles=None)
     s = HobitBatchSampler(recs, batch_size=16, pool=128, penalty=50.0,
                           mask_false_negatives=True, seed=5)
     s.set_embeddings(_two_clusters(len(recs)))
-    dup = sum(len(b) - len({recs[i]["design_id"] for i in b}) for b in s)
+    batches = list(s)
+    dup = sum(len(b) - len({recs[i]["design_id"] for i in b}) for b in batches[:-1])
     assert dup > 0, "마스킹 on인데도 같은 design_id를 회피하고 있다 — 조건부 규칙이 무의미"
 
 
