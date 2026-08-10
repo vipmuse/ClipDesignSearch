@@ -199,3 +199,56 @@ def test_embed_records는_깨진_이미지를_0벡터로_채워_정렬을_유지
     assert got.shape == (2, 3)
     assert np.all(got[0] == 0), "열 수 없는 이미지 자리가 0 벡터가 아니다"
     assert int(got[1][0]) == expect_ok, "행이 밀려 레코드와 어긋났다"
+
+
+from hobit import refresh_embeddings  # noqa: E402
+
+
+class _FakeModel:
+    """torch 없이 eval()/train() 호출 순서만 기록하는 대역 — GPU/모델 로딩 없이
+    refresh_embeddings의 예외 복구 계약을 검증하기 위한 것."""
+
+    def __init__(self):
+        self.calls = []
+
+    def eval(self):
+        self.calls.append("eval")
+
+    def train(self):
+        self.calls.append("train")
+
+
+def test_refresh_embeddings는_encode_fn이_예외를_던져도_train_모드로_복귀한다(tmp_path):
+    """CUDA OOM 등으로 인코딩 중 예외가 나도 model.train()이 반드시 호출되어야 한다.
+
+    복구를 빠뜨리면 이후 학습이 조용히 eval 모드로 진행되어 dropout이 꺼진 채
+    진행된다 — 에러 없이 결과만 나빠지는 실패라 반드시 finally로 고정한다.
+    """
+    from PIL import Image
+    Image.new("RGB", (16, 16), (10, 0, 0)).save(tmp_path / "x.png")
+    m = _FakeModel()
+    recs = [{"image": "x.png"}]
+
+    def boom(imgs):
+        raise RuntimeError("OOM 시뮬레이션")
+
+    try:
+        refresh_embeddings(m, recs, str(tmp_path), 16, boom)
+        assert False, "예외가 전파되지 않았다"
+    except RuntimeError:
+        pass
+    assert m.calls == ["eval", "train"], f"eval/train 호출이 어긋났다: {m.calls}"
+
+
+def test_refresh_embeddings는_정상_경로에서도_train_모드로_복귀한다(tmp_path):
+    from PIL import Image
+    Image.new("RGB", (16, 16), (10, 0, 0)).save(tmp_path / "ok.png")
+    m = _FakeModel()
+    recs = [{"image": "ok.png"}]
+
+    def fake_encode(imgs):
+        return np.array([[im.getpixel((0, 0))[0]] * 3 for im in imgs], dtype="float32")
+
+    emb = refresh_embeddings(m, recs, str(tmp_path), 16, fake_encode)
+    assert emb.shape == (1, 3)
+    assert m.calls == ["eval", "train"], f"eval/train 호출이 어긋났다: {m.calls}"

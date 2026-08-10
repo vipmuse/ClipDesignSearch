@@ -145,3 +145,16 @@ def embed_records(records, image_root, size, encode_fn, batch_size=64):
             flush()
     flush()
     return out if out is not None else np.zeros((len(records), 1), dtype="float32")
+
+
+def refresh_embeddings(model, records, image_root, size, encode_fn, batch_size=64):
+    """model을 eval로 내려 임베딩을 만들고, 예외가 나도 train 모드로 되돌린다.
+
+    복구를 빠뜨리면 이후 학습이 조용히 eval 모드로 돌아 dropout이 꺼진 채 진행된다 —
+    에러 없이 결과만 나빠지므로 반드시 finally로 보장한다.
+    """
+    model.eval()
+    try:
+        return embed_records(records, image_root, size, encode_fn, batch_size)
+    finally:
+        model.train()

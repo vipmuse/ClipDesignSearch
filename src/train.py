@@ -22,7 +22,7 @@ import yaml
 from torch.utils.data import DataLoader
 
 from dataset import Collator, PairDataset, PKBatchSampler, load_records, split_by_design, take_limit
-from hobit import HobitBatchSampler, embed_records
+from hobit import HobitBatchSampler, refresh_embeddings
 from model import build_model
 
 
@@ -213,12 +213,12 @@ def main():
                 epoch % max(1, t.get("hobit_refresh_every", 1)) == 0:
             # 배치 구성이 "현재" 모델 기준이어야 hard negative가 의미를 갖는다.
             # 학습 집합 전체를 1회 추론하는 비용이 에폭마다 든다 → refresh_every로 조절.
-            model.eval()
+            # refresh_embeddings가 eval/train 전환을 책임진다 — 인코딩 중 예외(OOM 등)가
+            # 나도 model.train()이 복구되도록 finally로 감싸져 있다 (src/hobit.py).
             with torch.no_grad():
-                emb = embed_records(
-                    train_recs, args.image_root, cfg["model"]["image_size"],
+                emb = refresh_embeddings(
+                    model, train_recs, args.image_root, cfg["model"]["image_size"],
                     lambda imgs: _encode_for_hobit(model, processor, imgs, device, dtype))
-            model.train()
             sampler.set_embeddings(emb)
             print(f"[hobit] epoch {epoch}: 임베딩 {emb.shape} 갱신", flush=True)
         if stop:
