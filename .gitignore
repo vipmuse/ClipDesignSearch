@@ -6,6 +6,7 @@ data/imgs/
 # build_pairs.py로 재생성 가능 (GitHub 용량 제한)
 data/pairs.jsonl
 data/eval_*.jsonl
+data/subset_*.jsonl
 __pycache__/
 *.pyc
 .cache/
