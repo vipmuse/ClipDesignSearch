@@ -131,6 +131,7 @@ def evaluate(model, loader, device, max_batches=None):
         if max_batches and bi >= max_batches:
             break
         d = enc.pop("design_label").to(device)
+        enc.pop("text_label", None)                    # 평가에는 쓰지 않는다
         pos = _pos_mask(d)                             # 대칭 → 양방향 공용
         enc = {k: v.to(device) for k, v in enc.items()}
         out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
@@ -253,6 +254,7 @@ def main():
             print(f"[hobit] epoch {epoch}: 임베딩 {emb.shape} 갱신", flush=True)
         for i, enc in enumerate(train_loader):
             design_label = enc.pop("design_label").to(device)
+            text_label = enc.pop("text_label").to(device)
             enc = {k: v.to(device) for k, v in enc.items()}
             # 마스킹 비활성 시 대각선만 positive = 표준 CLIP InfoNCE와 동일
             pos = _pos_mask(design_label) if mask_fn \
@@ -264,6 +266,10 @@ def main():
                 loss = masked_clip_loss(out.logits_per_image, pos)   # 이미지↔텍스트
                 if t["img2img_weight"] > 0:
                     loss = loss + t["img2img_weight"] * supcon_loss(out.image_embeds, design_label)
+                if t.get("tic_weight", 0.0) > 0:
+                    loss = loss + t["tic_weight"] * tic_loss(
+                        out.text_embeds, design_label, text_label,
+                        margin=t.get("tic_margin", 0.9))
                 loss = loss / t["grad_accum"]
 
             loss.backward()

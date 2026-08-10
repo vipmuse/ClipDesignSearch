@@ -173,6 +173,7 @@ class Collator:
     augment=True: 이미지 증강 + 확률적(30%) viewpoint 텍스트 부가 (학습 전용).
     design_label: 같은 design_id를 positive로 묶는 멀티-positive loss
     (masked InfoNCE, supcon)용 정수 라벨.
+    text_label: 같은 원문 제목 → 같은 정수. TIC 필터 전용 (positive 판정에 쓰지 않음).
     """
     processor: object
     image_size: int
@@ -180,7 +181,7 @@ class Collator:
     augment: bool = False
 
     def __call__(self, batch):
-        images, texts, design_ids = [], [], []
+        images, texts, raw_texts, design_ids = [], [], [], []
         for r in batch:
             path = os.path.join(self.image_root, r["image"])
             try:                              # 깨진/degenerate 이미지는 흰 배경으로 대체(학습 중단 방지)
@@ -189,6 +190,7 @@ class Collator:
                 img = Image.new("RGB", (self.image_size, self.image_size), (255, 255, 255))
             images.append(img)
             text = r["text"]
+            raw_texts.append(text)                    # 라벨은 원문 기준 — 증강 전 값
             if self.augment and r.get("viewpoint") and random.random() < 0.3:
                 text = f"{text}, {r['viewpoint']}"     # 텍스트 다양화 (④)
             texts.append(text)
@@ -201,6 +203,12 @@ class Collator:
         # 같은 design_id → 같은 정수 라벨 (이미지↔이미지 supervised contrastive용)
         uniq_d = {d: i for i, d in enumerate(dict.fromkeys(design_ids))}
         enc["design_label"] = torch.tensor([uniq_d[d] for d in design_ids], dtype=torch.long)
+        # 원문 제목이 같으면 같은 정수. TIC이 '밀어낼 수 없는 쌍'을 빼는 필터로만 쓴다.
+        # positive 판정에는 절대 쓰지 않는다 — 고유 제목이 141개뿐이라 그렇게 쓰면
+        # 서로 다른 디자인이 정답으로 묶여 학습 신호가 사라진다 (Phase 0에서 제거한 이유).
+        uniq_t = {}
+        enc["text_label"] = torch.tensor(
+            [uniq_t.setdefault(t, len(uniq_t)) for t in raw_texts], dtype=torch.long)
         return enc
 
 
