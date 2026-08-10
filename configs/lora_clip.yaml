@@ -42,5 +42,7 @@ train:
   # ── 정확도 개선 옵션 (ACCURACY.md 참조) ──
   pk_views: 4                # PK 샘플러: 배치 = 디자인 × 뷰 ≤K. 1이면 기존 랜덤 배치
   locarno_aware: true        # 같은 로카르노 클래스로 배치 구성 → 하드 네거티브
-  mask_false_negatives: true # 같은 design_id/동일 텍스트를 InfoNCE 네거티브에서 제외
+  mask_false_negatives: true # 같은 design_id의 다른 뷰만 InfoNCE 네거티브에서 제외
+                             # (제목 동일성은 positive 근거가 아니다 — 제목 중복이 심해
+                             #  마스크가 거의 전부 True가 되고 변별 그래디언트가 사라진다)
   augment: true              # 학습 시 도면 증강 (소회전·스케일·라인두께·viewpoint 텍스트)

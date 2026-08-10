@@ -18,38 +18,72 @@ from transformers import AutoModel, AutoProcessor
 from dataset import load_records, preprocess_drawing, take_limit
 from PIL import Image
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-def index_fingerprint(cfg, adapter, data):
-    """인덱스가 어떤 모델·어댑터·데이터로 만들어졌는지 기록하는 지문.
+
+def rel_posix(path):
+    """저장소 기준 상대 POSIX 경로로 정규화. 저장소 밖 경로는 그대로 둔다.
+
+    지문에 머신 절대경로가 박히면 저장소를 복제·이동한 순간 아무것도 바뀌지 않았는데
+    전부 '불일치'가 된다. 반대로 서버는 resolved config의 train.output_dir(규약상 항상
+    상대경로)에서 어댑터 경로를 유도하므로, 양쪽 표기가 다르면 영원히 만나지 못한다.
+    호출자가 절대/상대 어느 쪽을 넘기든 같은 문자열이 되도록 여기서 통일한다.
+    """
+    s = str(path)
+    if os.path.isabs(s):
+        try:
+            rel = os.path.relpath(s, ROOT)
+        except ValueError:                 # 다른 드라이브 → 상대화 불가
+            rel = ".."
+        if not rel.startswith(".."):       # 저장소 안일 때만 상대화
+            s = rel
+    return s.replace("\\", "/")
+
+
+def index_fingerprint(cfg, adapter, data, limit=0):
+    """인덱스가 어떤 모델·어댑터·데이터·범위로 만들어졌는지 기록하는 지문.
 
     방법이 여러 개면 'A 인덱스에 B 어댑터'로 검색하는 사고가 실제로 일어나고,
     그건 에러 없이 결과만 조용히 틀어진다. encode_images의 ckpt_key와 같은 원칙.
+
+    limit이 지문에 있어야 하는 이유: --quick(--limit 2000)이 만든 2,000장짜리
+    데모 인덱스와 472,615장 전체 인덱스는 model_id·adapter·data가 전부 같다.
+    limit이 빠지면 서버가 데모 인덱스를 전체 갤러리로 믿고 서빙한다.
     """
     return {
         "model_id": cfg["model"]["model_id"],
         "image_size": cfg["model"]["image_size"],
-        "adapter": str(adapter).replace("\\", "/"),
-        "data": str(data).replace("\\", "/"),
+        "adapter": rel_posix(adapter),
+        "data": rel_posix(data),
+        "limit": int(limit or 0),
         "method": cfg.get("method", {}).get("name", ""),
     }
 
 
-def check_index_meta(index_dir, cfg, adapter, data):
+def check_index_meta(index_dir, cfg, adapter, data, limit=0, n_vectors=None):
     """인덱스 지문이 현재 설정과 맞는지 확인. (정상여부, 사유) 반환.
 
     서버는 이 결과로 방법별 활성 여부를 정한다 — 불일치 시 그 방법만 비활성시키고
     서버 전체를 죽이지 않는다.
+
+    n_vectors는 지문(=입력)이 아니라 빌드 결과라 want에 넣을 수 없다(열리지 않는
+    도면이 몇 장이었는지를 요청 측이 미리 알 도리가 없다). 대신 실제 벡터 수를
+    아는 호출자(FAISS 인덱스를 연 서버: index.ntotal)가 넘기면 따로 대조한다 —
+    faiss.index만 잘리거나 뒤바뀐 경우를 잡는 용도.
     """
     p = os.path.join(index_dir, "index_meta.json")
     if not os.path.exists(p):
         return False, f"index_meta.json 없음: {p}"
-    saved = json.load(open(p, encoding="utf-8"))
-    want = index_fingerprint(cfg, adapter, data)
+    with open(p, encoding="utf-8") as f:   # 서버가 요청마다 부르는 함수 → fd 누수 금지
+        saved = json.load(f)
+    want = index_fingerprint(cfg, adapter, data, limit)
     for k, v in want.items():
         if k == "method":                      # 이름은 참고용, 판정에 쓰지 않는다
             continue
         if saved.get(k) != v:
             return False, f"{k} 불일치: 인덱스={saved.get(k)!r} 요청={v!r}"
+    if n_vectors is not None and saved.get("n_vectors") != int(n_vectors):
+        return False, f"n_vectors 불일치: 인덱스={saved.get('n_vectors')!r} 실제={int(n_vectors)!r}"
     return True, ""
 
 
@@ -175,7 +209,9 @@ def main():
     ap.add_argument("--index", default="outputs/index")
     ap.add_argument("--text", default=None)
     ap.add_argument("--topk", type=int, default=10)
-    ap.add_argument("--limit", type=int, default=0, help="build: 앞 N개 도면만 인덱싱(데모용)")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="build: N개 도면만 인덱싱(데모용). "
+                         "train/eval과 같은 seed로 무작위 표집(앞에서 자르지 않음)")
     args = ap.parse_args()
 
     import faiss
@@ -208,7 +244,7 @@ def main():
             for r in records:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         with open(os.path.join(args.index, "index_meta.json"), "w", encoding="utf-8") as f:
-            fp = index_fingerprint(cfg, args.adapter, args.data)
+            fp = index_fingerprint(cfg, args.adapter, args.data, args.limit)
             fp.update(n_vectors=int(mat.shape[0]), dim=int(mat.shape[1]))
             json.dump(fp, f, ensure_ascii=False, indent=2)
         import shutil

@@ -3,7 +3,8 @@
 정확도 개선 사항(ACCURACY.md):
   - design_id 단위 train/eval 분할 (평가 누수 제거)
   - PK 배치 샘플러: 배치 = 디자인 P개 × 뷰 K장 → img2img loss가 실제 발화
-  - masked InfoNCE: 같은 design_id·동일 텍스트를 네거티브로 밀어내는 노이즈 제거
+  - masked InfoNCE: 같은 design_id의 다른 뷰를 네거티브로 밀어내는 노이즈 제거
+    (텍스트 동일성은 positive 근거에서 제외 — 제목 중복이 심해 마스크가 포화된다)
   - 학습 시 도면 증강 (소회전·스케일·라인두께)
 
 사용법:
@@ -32,8 +33,9 @@ def masked_clip_loss(logits_per_image, pos_mask):
     """멀티-positive InfoNCE (양방향 평균).
 
     pos_mask[i,j]=True ⇔ (이미지 i, 텍스트 j)가 정답 쌍. 대각선 외에도 같은
-    design_id의 다른 뷰·동일 텍스트를 positive로 인정해, 표준 CLIP loss가 이들을
-    네거티브로 밀어내는 false negative 노이즈를 제거한다."""
+    design_id의 다른 뷰를 positive로 인정해, 표준 CLIP loss가 이들을 네거티브로
+    밀어내는 false negative 노이즈를 제거한다. 텍스트 동일성은 근거에 넣지 않는다
+    (이유는 아래 _pos_mask 참조)."""
     m = pos_mask.float()
     logp_i2t = logits_per_image.log_softmax(dim=1)      # 이미지→텍스트 방향
     logp_t2i = logits_per_image.log_softmax(dim=0)      # 텍스트→이미지 방향

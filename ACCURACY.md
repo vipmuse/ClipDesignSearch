@@ -34,7 +34,10 @@ PK 샘플러 도입 시 같은 디자인 뷰들이 한 배치에 모이므로 **
 샘플러가 오히려 해로움** — 둘은 반드시 세트.
 
 **해결**: HF 내장 `return_loss` 대신 직접 구현한 **멀티-positive InfoNCE**
-(`masked_clip_loss`) — 같은 `design_id`·동일 텍스트 쌍을 positive로 처리.
+(`masked_clip_loss`) — 같은 `design_id`의 다른 뷰를 positive로 처리.
+단 **텍스트 동일성은 positive 근거에서 제외**했다: 고유 제목 28,859개 중 유일한 것이
+141개뿐이라(2026-08 실측) 제목으로 묶으면 서로 다른 디자인이 정답이 되고, 특히
+`locarno_aware` 배치에서 마스크가 거의 전부 True가 되어 변별 그래디언트가 사라진다.
 
 ### ④ 텍스트 빈약 [부분 구현]
 text가 `object_title` 하나뿐. 개선 수단:
@@ -100,8 +103,9 @@ k-reciprocal re-ranking은 더 강력하지만 구현 복잡도가 높아 로드
 | — | 베이스라인 평가(어댑터 없이) | `src/embed.py` `load_tuned(adapter="none")` | CLI |
 
 부가 수정: `train.py`의 배치 내 평가(`evaluate`)도 멀티-positive 인식으로 교정
-(같은 디자인/동일 텍스트가 top-K에 있으면 히트). 단, 이는 학습 중 빠른 프록시일
-뿐이며 **공식 수치는 `eval_retrieval.py`가 기준**.
+(같은 `design_id`의 다른 뷰가 top-K에 있으면 히트 — 손실과 같은 `_pos_mask`를 쓰므로
+텍스트 동일성은 보지 않는다). 단, 이는 학습 중 빠른 프록시일 뿐이며 **공식 수치는
+`eval_retrieval.py`가 기준**.
 
 ---
 
@@ -141,9 +145,23 @@ python webapp\server.py
 ## 3-1. 방법별 기여도 측정 (Ablation)
 
 각 개선 방법이 **개별적으로 얼마나 성능을 올리는지** 측정하는 자동 러너:
-`scripts/run_ablation.py`. arm(실험군)마다 config 생성 → 학습 → 전체 갤러리 평가
-→ `outputs/ablation/summary.md`에 baseline 대비 Δ 비교표 생성.
+`scripts/run_ablation.py`. arm(실험군)마다 **학습 → 전체 갤러리 평가 → FAISS 인덱스
+빌드** 3단계를 돌고 `outputs/methods/summary.md`에 baseline 대비 Δ 비교표를 만든다.
 모든 arm이 같은 seed → **동일한 design_id 홀드아웃**에서 비교됨.
+
+방법 정의는 `configs/methods/<name>.yaml` 한 장이 규정하고, 병합은 `src/registry.py`
+한 곳에서만 한다(새 arm은 YAML 한 장 추가로 끝). 병합 결과는 arm마다
+`outputs/methods/<name>/config.resolved.yaml`로 못박히고 학습·평가·인덱스가 이 파일만
+읽는다 — 세 단계가 같은 데이터·해상도를 본다는 보장이 여기서 나온다.
+
+```
+outputs/methods/<name>/
+  config.resolved.yaml   ← 재현 기록. 학습을 스킵할 때는 덮어쓰지 않는다
+  data/pairs.jsonl.pointer.json
+  final/                 ← LoRA 어댑터
+  eval/final.json  ·  index/{faiss.index, meta.jsonl, index_meta.json}
+  train.log · eval.log · index.log
+```
 
 | arm | 구성 | 측정 대상 |
 |---|---|---|
@@ -162,10 +180,17 @@ python scripts\run_ablation.py --quick        # 스모크 (레코드 2000 × 1 e
 python scripts\run_ablation.py --epochs 3     # 실전 ablation (권장 시작점, 학습 6회)
 python scripts\run_ablation.py --report-only  # 완료된 결과로 표만 재생성
 python scripts\run_ablation.py --arms baseline all all-r32 --epochs 3   # arm 선택
+python scripts\run_ablation.py --epochs 3 --no-index   # 인덱스 빌드 생략 (평가만 볼 때)
 ```
 
 - 학습 1회가 오래 걸리므로 `--epochs 3`으로 좁힌 뒤, 유망한 조합만 풀 epoch 재학습 권장.
-- 중단돼도 재실행하면 완료된 arm(어댑터/평가 존재)은 자동 스킵 (`--force`로 무시).
+- 중단돼도 재실행하면 완료된 arm(어댑터/평가/인덱스 존재)은 자동 스킵 (`--force`로 무시).
+- 인덱스 빌드는 `--limit`을 포함한 지문(`index/index_meta.json`)을 남긴다. `--quick`으로
+  만든 2,000장짜리 데모 인덱스를 나중에 전체 갤러리로 착각해 서빙하는 사고를 막는다
+  (`src/embed.py`의 `check_index_meta`가 판정).
+- 어댑터가 이미 있는 arm에서 메서드 YAML을 고치고 `--force` 없이 재실행하면, 저장된
+  `config.resolved.yaml`을 **그대로 쓰고** 달라진 키를 경고로 출력한다. 새 설정으로
+  돌리려면 `--force`.
 
 ## 3-2. 관련 논문 (ICML 2026 로컬 포스터 아카이브, localhost:8000)
 

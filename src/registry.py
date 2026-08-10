@@ -15,6 +15,7 @@ OUT_ROOT = os.path.join(ROOT, "outputs", "methods")
 
 DEFAULT_BASE = "configs/lora_clip.yaml"
 _OVERRIDABLE = ("model", "lora", "train")     # 메서드 YAML이 덮어쓸 수 있는 최상위 블록
+_ALLOWED_TOP = ("name", "description", "extends", "data") + _OVERRIDABLE
 
 
 def deep_merge(base, over):
@@ -44,20 +45,55 @@ def method_dir(name):
 
 
 def resolve(name, base_config=None):
-    """메서드 YAML을 extends 베이스와 병합한 dict. 파일 쓰기는 하지 않는다."""
+    """메서드 YAML을 extends 베이스와 병합한 dict. 파일 쓰기는 하지 않는다.
+
+    인식하지 못한 최상위 키는 무시하지 않고 즉시 예외로 막는다. `train:`을
+    `trian:`으로 오타내면 병합이 조용히 성공하면서 그 방법이 베이스(=전부 ON)
+    레시피가 돼버려, ablation이 Δ≈0을 찍고 "어떤 개선도 효과 없다"는 결론이
+    나온다 — 몇 시간짜리 학습을 태우고 나서야 드러나는 종류의 사고다.
+    """
     path = os.path.join(METHODS_DIR, f"{name}.yaml")
     if not os.path.exists(path):
         raise FileNotFoundError(f"알 수 없는 메서드: {name} ({path})")
     spec = yaml.safe_load(open(path, encoding="utf-8")) or {}
+    unknown = [k for k in spec if k not in _ALLOWED_TOP]
+    if unknown:
+        raise ValueError(
+            f"{path}: 알 수 없는 최상위 키 {sorted(unknown)} "
+            f"(허용: {list(_ALLOWED_TOP)}). 오타라면 고치고, 새 블록이라면 "
+            f"registry._ALLOWED_TOP에 등록하세요.")
     base_rel = base_config or spec.get("extends", DEFAULT_BASE)
     base = yaml.safe_load(open(os.path.join(ROOT, base_rel), encoding="utf-8"))
 
     cfg = deep_merge(base, {k: v for k, v in spec.items() if k in _OVERRIDABLE})
+    if not isinstance(cfg.get("train"), dict):
+        raise ValueError(
+            f"{path}: 병합 결과에 train 블록이 없습니다 "
+            f"(베이스 {base_rel}에도, 메서드 YAML에도 없음). "
+            f"학습 하이퍼파라미터가 통째로 비어 있다는 뜻입니다.")
+
+    # data.pairs가 실제 학습 데이터를 고르게 한다 — YAML 한 장이 방법 하나를 완전히
+    # 규정한다는 원칙(설계 문서 §2). 두 곳에 서로 다른 값이 있으면 어느 쪽이 이겼는지
+    # 산출물만 봐서는 알 수 없으므로 고르지 않고 거부한다.
+    data = dict(spec.get("data") or {})
+    train_over = spec.get("train") or {}
+    pairs, train_path = data.get("pairs"), train_over.get("data_path")
+    if pairs and train_path and pairs != train_path:
+        raise ValueError(
+            f"{path}: data.pairs({pairs!r})와 train.data_path({train_path!r})가 충돌합니다. "
+            f"데이터는 data.pairs 한 곳에만 적으세요.")
+    if pairs:
+        cfg["train"]["data_path"] = pairs
+    data.setdefault("builder", "shared")
+    # 포인터 파일이 기록할 값과 학습이 읽을 값을 같은 곳에서 파생시킨다 —
+    # train.data_path만 손댄 경우에도 포인터가 거짓말하지 않도록.
+    data["pairs"] = cfg["train"].get("data_path", "data/pairs.jsonl")
+
     cfg["method"] = {
         "name": name,
         "description": spec.get("description", ""),
         "extends": base_rel,
-        "data": spec.get("data", {"builder": "shared", "pairs": "data/pairs.jsonl"}),
+        "data": data,
     }
     # 산출물 경로는 규약으로 고정 — 메서드 YAML이 지정하지 못하게 한다
     cfg["train"]["output_dir"] = os.path.relpath(method_dir(name), ROOT).replace("\\", "/")

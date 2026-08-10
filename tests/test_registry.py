@@ -114,3 +114,112 @@ def test_shared_데이터는_포인터_파일로_공용_pairs를_가리킨다(�
     assert os.path.exists(pointer), "포인터 파일이 생성되지 않았다"
     import json
     assert json.load(open(pointer, encoding="utf-8"))["source"] == "data/pairs.jsonl"
+
+
+# ── 최상위 키 검증: 오타가 조용히 '전부 ON' 레시피로 둔갑하는 것을 막는다 ──
+
+def test_모르는_최상위_키는_에러(임시_레지스트리, tmp_path):
+    """`train:`을 `trian:`으로 오타내면 병합이 조용히 성공해 그 방법이 베이스(=전부 ON)
+    레시피가 된다. ablation은 Δ≈0을 찍고 '어떤 개선도 효과 없다'는 결론이 나온다 —
+    몇 시간짜리 학습을 태운 뒤에야 드러나는 사고라 resolve()에서 즉시 막아야 한다."""
+    (tmp_path / "configs" / "methods" / "오타.yaml").write_text(
+        yaml.safe_dump({
+            "name": "오타",
+            "extends": "configs/lora_clip.yaml",
+            "trian": {"augment": False},          # train 오타
+        }, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(ValueError) as e:
+        registry.resolve("오타")
+    assert "trian" in str(e.value)
+
+
+def test_오타난_블록은_베이스_값으로_조용히_대체되지_않는다(임시_레지스트리, tmp_path):
+    """오타 방법이 '베이스와 동일한 설정'으로 resolve되는 일이 없어야 한다는
+    본질을 값으로 고정한다 (예외 종류가 아니라 결과를 본다)."""
+    (tmp_path / "configs" / "methods" / "오타2.yaml").write_text(
+        yaml.safe_dump({"name": "오타2", "extends": "configs/lora_clip.yaml",
+                        "trian": {"augment": False}}, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(Exception):
+        registry.resolve("오타2")
+
+
+def test_허용된_최상위_키만_쓰면_통과한다(임시_레지스트리, tmp_path):
+    (tmp_path / "configs" / "methods" / "full.yaml").write_text(
+        yaml.safe_dump({
+            "name": "full", "description": "d", "extends": "configs/lora_clip.yaml",
+            "data": {"builder": "shared", "pairs": "data/pairs.jsonl"},
+            "model": {"image_size": 384}, "lora": {"r": 32}, "train": {"epochs": 2},
+        }), encoding="utf-8")
+    cfg = registry.resolve("full")
+    assert cfg["model"]["image_size"] == 384 and cfg["lora"]["r"] == 32
+
+
+def test_train_블록이_없으면_파일명이_담긴_에러(임시_레지스트리, tmp_path):
+    """베이스에도 메서드에도 train이 없으면 bare KeyError가 아니라 어느 파일이
+    문제인지 알려주는 메시지가 나와야 한다."""
+    (tmp_path / "configs" / "no_train.yaml").write_text(
+        yaml.safe_dump({"model": {"model_id": "m"}, "lora": {}}), encoding="utf-8")
+    (tmp_path / "configs" / "methods" / "notrain.yaml").write_text(
+        yaml.safe_dump({"name": "notrain", "extends": "configs/no_train.yaml"}),
+        encoding="utf-8")
+    with pytest.raises(ValueError) as e:
+        registry.resolve("notrain")
+    assert "notrain.yaml" in str(e.value) and "train" in str(e.value)
+
+
+# ── data.pairs 배선: YAML의 data 블록이 실제로 학습 데이터를 고른다 ──
+
+def _쓰기(tmp_path, name, spec):
+    (tmp_path / "configs" / "methods" / f"{name}.yaml").write_text(
+        yaml.safe_dump(spec, allow_unicode=True), encoding="utf-8")
+
+
+def test_data_pairs가_train_data_path를_결정한다(임시_레지스트리, tmp_path):
+    """data 블록이 장식이면 scripts/build_subset.py가 만든 부분집합을 레지스트리에서
+    쓸 방법이 없다 — 'YAML 한 장이 방법 하나를 완전히 규정한다'가 깨진다."""
+    _쓰기(tmp_path, "sub", {"name": "sub", "extends": "configs/lora_clip.yaml",
+                            "data": {"builder": "shared", "pairs": "data/subset_100k.jsonl"}})
+    cfg = registry.resolve("sub")
+    assert cfg["train"]["data_path"] == "data/subset_100k.jsonl"
+    assert cfg["method"]["data"]["pairs"] == "data/subset_100k.jsonl"
+
+
+def test_포인터_파일도_같은_데이터를_가리킨다(임시_레지스트리, tmp_path):
+    import json
+    _쓰기(tmp_path, "sub2", {"name": "sub2", "extends": "configs/lora_clip.yaml",
+                             "data": {"builder": "shared", "pairs": "data/subset_100k.jsonl"}})
+    cfg = registry.resolve("sub2")
+    actual = registry.write_data_pointer("sub2", cfg)
+    pointer = os.path.join(registry.method_dir("sub2"), "data", "pairs.jsonl.pointer.json")
+    assert json.load(open(pointer, encoding="utf-8"))["source"] == "data/subset_100k.jsonl"
+    assert actual.replace(os.sep, "/").endswith("data/subset_100k.jsonl")
+
+
+def test_train_data_path만_고쳐도_포인터가_거짓말하지_않는다(임시_레지스트리, tmp_path):
+    """data 블록 없이 train.data_path만 손댄 경우에도 포인터(=출처 기록)가 실제
+    학습 데이터와 같아야 한다. 출처를 남기는 것이 유일한 임무인 파일이 틀린 출처를
+    남기면 그 파일은 해롭다."""
+    import json
+    _쓰기(tmp_path, "직접", {"name": "직접", "extends": "configs/lora_clip.yaml",
+                             "train": {"data_path": "data/subset_100k.jsonl"}})
+    cfg = registry.resolve("직접")
+    registry.write_data_pointer("직접", cfg)
+    pointer = os.path.join(registry.method_dir("직접"), "data", "pairs.jsonl.pointer.json")
+    assert json.load(open(pointer, encoding="utf-8"))["source"] == "data/subset_100k.jsonl"
+
+
+def test_data_pairs와_train_data_path가_충돌하면_에러(임시_레지스트리, tmp_path):
+    """어느 쪽이 이겼는지 산출물만 봐서는 알 수 없으므로 고르지 않고 거부한다."""
+    _쓰기(tmp_path, "충돌", {"name": "충돌", "extends": "configs/lora_clip.yaml",
+                             "data": {"pairs": "data/a.jsonl"},
+                             "train": {"data_path": "data/b.jsonl"}})
+    with pytest.raises(ValueError) as e:
+        registry.resolve("충돌")
+    assert "data/a.jsonl" in str(e.value) and "data/b.jsonl" in str(e.value)
+
+
+def test_두_곳의_값이_같으면_충돌이_아니다(임시_레지스트리, tmp_path):
+    _쓰기(tmp_path, "동일", {"name": "동일", "extends": "configs/lora_clip.yaml",
+                             "data": {"pairs": "data/x.jsonl"},
+                             "train": {"data_path": "data/x.jsonl"}})
+    assert registry.resolve("동일")["train"]["data_path"] == "data/x.jsonl"

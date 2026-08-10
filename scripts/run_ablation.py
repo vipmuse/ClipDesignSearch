@@ -64,14 +64,52 @@ def eval_json_path(name):
     return os.path.join(registry.method_dir(name), "eval", fname)
 
 
+def resolved_path(name):
+    return os.path.join(registry.method_dir(name), "config.resolved.yaml")
+
+
+def diff_keys(saved, cur, prefix=""):
+    """두 config에서 값이 다른 키를 'a.b.c' 형태로 나열. (키, 저장본, 현재) 리스트."""
+    out = []
+    for k in sorted(set(saved) | set(cur)):
+        a, b = saved.get(k, "<없음>"), cur.get(k, "<없음>")
+        if isinstance(a, dict) and isinstance(b, dict):
+            out += diff_keys(a, b, f"{prefix}{k}.")
+        elif a != b:
+            out.append((prefix + k, a, b))
+    return out
+
+
 def train_arm(name, args):
-    """resolved config와 데이터 포인터를 못박고 학습. (어댑터 경로, config 경로) 반환."""
+    """resolved config와 데이터 포인터를 못박고 학습. (어댑터 경로, config 경로) 반환.
+
+    학습을 건너뛸 때는 저장된 config.resolved.yaml을 절대 덮어쓰지 않는다. 덮어쓰면
+    재현 기록이어야 할 파일이 어댑터와 무관하게 변하고, 이후 평가·인덱스가 학습되지
+    않은 설정(예: 224로 학습한 어댑터를 384로)으로 돌면서 index_meta.json까지 그
+    거짓말에 동의해버린다.
+    """
     adir = registry.method_dir(name)
     adapter = os.path.join(adir, "final")
     cfg = registry.resolve(name)
+    cfg_path = resolved_path(name)
+    trained = os.path.exists(os.path.join(adapter, "adapter_config.json")) and not args.force
+
+    if trained and os.path.exists(cfg_path):
+        stored = yaml.safe_load(open(cfg_path, encoding="utf-8")) or {}
+        diffs = diff_keys(stored, cfg)
+        if diffs:
+            print(f"!! [{name}] 저장된 config.resolved.yaml과 현재 메서드 YAML이 다릅니다 "
+                  f"— 저장본을 그대로 쓰고 진행합니다 (어댑터는 저장본 설정으로 학습됨).")
+            for key, was, now in diffs:
+                print(f"!!   {key}: 저장본={was!r} 현재={now!r}")
+            print(f"!! [{name}] 새 설정으로 학습·평가·인덱스를 다시 만들려면 --force 로 재실행하세요.")
+        else:
+            print(f"[{name}] adapter 존재 → 학습 스킵 (--force로 재학습)")
+        return adapter, cfg_path
+
     cfg_path = registry.write_resolved(name, cfg)
     registry.write_data_pointer(name, cfg)          # 산출물에 데이터 출처를 남긴다
-    if os.path.exists(os.path.join(adapter, "adapter_config.json")) and not args.force:
+    if trained:
         print(f"[{name}] adapter 존재 → 학습 스킵 (--force로 재학습)")
         return adapter, cfg_path
 
@@ -197,7 +235,10 @@ def main():
         os.makedirs(registry.method_dir(name), exist_ok=True)
         if name == "base":
             # 튜닝 전 베이스 모델: 학습 없이 평가만. baseline의 resolved를 기준 config로 쓴다
-            base_cfg = registry.write_resolved("baseline")
+            # baseline이 이미 학습돼 있으면 그 저장본을 쓴다 — 여기서 새로 쓰면
+            # baseline의 재현 기록이 base arm 실행만으로 갱신돼 버린다
+            base_cfg = (resolved_path("baseline") if os.path.exists(resolved_path("baseline"))
+                        else registry.write_resolved("baseline"))
             eval_arm(name, "none", base_cfg, args)
         else:
             adapter, cfg_path = train_arm(name, args)

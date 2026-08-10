@@ -37,7 +37,10 @@ def test_로카르노_분포가_유지된다():
         return {k: v / len(rs) for k, v in c.items()}
     src, sub = share(recs), share(got)
     for code in src:
-        assert abs(src[code] - sub.get(code, 0)) < 0.05, f"{code} 비율이 크게 틀어짐"
+        # 0.05는 너무 헐거웠다: 로카르노를 무시하고 아무 design이나 뽑는 샘플러도
+        # 500 seed 중 154번(약 31%)만 걸린다. 실제 구현의 최대 편차는 200 seed에서
+        # 정확히 0.0이라 0.01로 조여도 비용이 없고, 계층화 없는 구현은 사실상 항상 실패한다.
+        assert abs(src[code] - sub.get(code, 0)) < 0.01, f"{code} 비율이 크게 틀어짐"
 
 
 def test_같은_seed는_같은_결과():

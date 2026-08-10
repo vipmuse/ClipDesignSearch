@@ -23,6 +23,13 @@ def build_subset(records, target_drawings, seed):
     """로카르노 비율을 유지하며 design 단위로 target_drawings장 근처까지 뽑는다.
 
     반환은 입력 순서를 유지한 부분 리스트 (진단·재현이 쉽도록).
+
+    코드마다 **최소 1개 디자인은 반드시 남는다**: got이 0에서 시작하고 quota는 항상
+    0보다 크므로 첫 디자인을 넣기 전에는 break가 걸리지 않는다. 의도한 동작이다 —
+    희귀 코드가 통째로 사라지면 그 코드는 학습·평가에서 아예 관측되지 않는다.
+    대가는 작은 target에서의 초과다: 코드 271종을 쓰는 실데이터에서 --target 2000이면
+    바닥값만 271개 디자인(≈2,200 도면)이라 목표를 넘고 희귀 코드가 과대표집된다.
+    target이 (코드 수 × 디자인당 평균 뷰 수)보다 충분히 커야 비율이 지켜진다.
     """
     if target_drawings >= len(records):
         return records
