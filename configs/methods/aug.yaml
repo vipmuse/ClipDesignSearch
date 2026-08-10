@@ -1,0 +1,10 @@
+name: aug
+description: "+ 도면 증강 (소회전·스케일·라인두께·viewpoint 텍스트)"
+extends: configs/lora_clip.yaml
+data: {builder: shared, pairs: data/pairs.jsonl}
+train:
+  pk_views: 1
+  locarno_aware: false
+  mask_false_negatives: false
+  augment: true
+  img2img_weight: 0.0

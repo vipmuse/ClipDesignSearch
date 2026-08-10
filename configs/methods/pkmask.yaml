@@ -1,0 +1,10 @@
+name: pkmask
+description: "+ PK 샘플러 + 마스킹 (세트 — PK 단독은 false negative를 늘려 유해)"
+extends: configs/lora_clip.yaml
+data: {builder: shared, pairs: data/pairs.jsonl}
+train:
+  pk_views: 4
+  locarno_aware: true
+  mask_false_negatives: true
+  augment: false
+  img2img_weight: 0.0

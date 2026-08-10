@@ -1,0 +1,10 @@
+name: mask
+description: "+ false-negative 마스킹 InfoNCE (design_id 기준)"
+extends: configs/lora_clip.yaml
+data: {builder: shared, pairs: data/pairs.jsonl}
+train:
+  pk_views: 1
+  locarno_aware: false
+  mask_false_negatives: true
+  augment: false
+  img2img_weight: 0.0
