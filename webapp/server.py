@@ -103,20 +103,23 @@ def _pack_one(i, s):
     }
 
 
-def _dedup_pack(idxs, scores, topk):
-    """점수 내림차순 (idxs,scores)에서 출원번호(design_id) 중복 제거 후 상위 topk."""
-    seen, out = set(), []
-    for i, s in zip(idxs.tolist(), scores.tolist()):
+def _group_pack(idxs, scores, topk, agg_top=2):
+    """출원(design_id)별로 풀 내 뷰 점수를 모아 상위 agg_top개 평균으로 집계 후 topk.
+
+    최고 뷰 1장(max)만 쓰면 노이즈에 취약 → top-2 뷰 평균이 강건 (ACCURACY.md ⑥).
+    대표 이미지는 해당 출원의 최고 점수 뷰."""
+    views, best = {}, {}
+    for i, s in zip(np.asarray(idxs).tolist(), np.asarray(scores).tolist()):
         if i < 0:
             continue
         did = STATE["meta"][int(i)].get("design_id", "")
-        if did in seen:
-            continue
-        seen.add(did)
-        out.append(_pack_one(int(i), s))
-        if len(out) >= topk:
-            break
-    return out
+        views.setdefault(did, []).append(s)
+        if did not in best or s > best[did][1]:
+            best[did] = (int(i), s)
+    ranked = sorted(
+        ((float(np.mean(sorted(v, reverse=True)[:agg_top])), d) for d, v in views.items()),
+        reverse=True)
+    return [_pack_one(best[d][0], agg) for agg, d in ranked[:topk]]
 
 
 def _fmt_locarno(code):
@@ -161,12 +164,49 @@ def _predict_labels(img_vec, topn=5):
     return [{"label": STATE["labels"][j], "score": round(float(sims[j]), 4)} for j in top]
 
 
+def _encode_image_query(img, tta=True):
+    """쿼리 이미지 인코딩. TTA: 원본+소회전(±4°) 앙상블 평균 → 재정규화 (ACCURACY.md ⑧)."""
+    imgs = [img]
+    if tta:
+        imgs += [img.rotate(a, expand=True, fillcolor=(255, 255, 255)) for a in (-4, 4)]
+    vecs = encode_pil(STATE["model"], STATE["proc"], imgs, STATE["size"], STATE["device"])
+    v = vecs.mean(0, keepdims=True)
+    return (v / np.linalg.norm(v, axis=1, keepdims=True)).astype("float32")
+
+
+def _encode_text_query(q):
+    """텍스트 쿼리: 프롬프트 템플릿 앙상블(한글 감지 시 한국어 템플릿) 평균 → 재정규화."""
+    if any("가" <= ch <= "힣" for ch in q):
+        tpls = [q, f"{q}의 특허 도면", f"{q} 디자인 도면"]
+    else:
+        tpls = [q, f"patent drawing of {q}", f"technical line drawing of {q}"]
+    vecs = encode_text(STATE["model"], STATE["proc"], tpls, STATE["device"])
+    v = vecs.mean(0, keepdims=True)
+    return (v / np.linalg.norm(v, axis=1, keepdims=True)).astype("float32")
+
+
+def _query_expand(vec, m=10, alpha=3.0):
+    """α-쿼리 확장(αQE): 1차 검색 top-m 이미지 벡터를 점수^α 가중으로 쿼리에 더해
+    재검색. 단일 뷰 쿼리를 갤러리 분포 쪽으로 보강하는 경량 re-rank (ACCURACY.md ⑦)."""
+    s, i = STATE["index"].search(vec.astype("float32"), m)
+    keep = i[0] >= 0
+    if not keep.any():
+        return vec
+    nb = STATE["vectors"][i[0][keep]]
+    w = np.clip(s[0][keep], 0.0, None) ** alpha
+    v = vec[0] + (nb * w[:, None]).sum(0)
+    v = v / (np.linalg.norm(v) + 1e-12)
+    return v[None].astype("float32")
+
+
 @app.post("/api/search")
 def search(image: UploadFile = File(...), topk: int = 12,
-           category: str = Form(""), alpha: float = Form(1.0)):
+           category: str = Form(""), alpha: float = Form(1.0),
+           tta: int = Form(1), qe: int = Form(1)):
     """이미지 검색. category+alpha 주면 '개념 검색'(쿼리 융합):
        query = normalize(alpha*이미지 + (1-alpha)*카테고리텍스트).
-       alpha=1.0 → 순수 이미지 유사도. alpha↓ → 예측/지정 카테고리 쪽으로 재정렬."""
+       alpha=1.0 → 순수 이미지 유사도. alpha↓ → 예측/지정 카테고리 쪽으로 재정렬.
+       tta=1: 쿼리 이미지 회전 앙상블, qe=1: αQE 쿼리 확장."""
     try:
         img = Image.open(io.BytesIO(image.file.read())).convert("RGB")
     except Exception:
@@ -174,30 +214,31 @@ def search(image: UploadFile = File(...), topk: int = 12,
 
     alpha = max(0.0, min(1.0, float(alpha)))
     with _lock:
-        img_vec = encode_pil(STATE["model"], STATE["proc"], [img], STATE["size"], STATE["device"])
+        img_vec = _encode_image_query(img, tta=bool(tta))
         predicted = _predict_labels(img_vec)            # 이미지 → 예측 물품 카테고리
         used_cat = category.strip() or (predicted[0]["label"] if predicted else "")
+        qvec = _query_expand(img_vec) if qe else img_vec
 
         if alpha < 1.0 and used_cat:
             # 개념 검색(image→text→image): ①카테고리 텍스트로 후보 풀 확정 → ②풀 내에서
             # 이미지 유사도로 재정렬. 최종점수 = alpha*이미지유사 + (1-alpha)*카테고리유사.
-            tvec = encode_text(STATE["model"], STATE["proc"], [used_cat], STATE["device"])
+            tvec = _encode_text_query(used_cat)
             pool = min(max(int(topk) * 25, 200), STATE["index"].ntotal)
             t_scores, t_idxs = STATE["index"].search(tvec, pool)
             ids, tsc = t_idxs[0], t_scores[0]
             keep = ids >= 0
             ids, tsc = ids[keep], tsc[keep]
-            isc = STATE["vectors"][ids] @ img_vec[0]    # 풀 항목의 이미지 유사도
+            isc = STATE["vectors"][ids] @ qvec[0]       # 풀 항목의 이미지 유사도
             final = alpha * isc + (1.0 - alpha) * tsc
-            order = np.argsort(-final)                   # 전체 정렬 (중복 제거는 아래에서)
+            order = np.argsort(-final)                   # 전체 정렬 (집계는 아래에서)
             sel_ids, sel_sc = ids[order], final[order]
         else:
             used_cat = ""                               # 순수 이미지 검색
             pool = min(max(int(topk) * 12, 120), STATE["index"].ntotal)
-            sel_sc, sel_ids = STATE["index"].search(img_vec.astype("float32"), pool)
+            sel_sc, sel_ids = STATE["index"].search(qvec, pool)
             sel_ids, sel_sc = sel_ids[0], sel_sc[0]
 
-    results = _dedup_pack(sel_ids, sel_sc, int(topk))   # 출원번호 중복 제거
+    results = _group_pack(sel_ids, sel_sc, int(topk))   # 출원별 top-2 뷰 평균 집계
     return JSONResponse({
         "count": len(results),
         "predicted_labels": predicted,                  # 이미지→텍스트 변환 결과
@@ -213,10 +254,10 @@ def search_text(query: str = Form(...), topk: int = 12):
     if not query:
         raise HTTPException(400, "검색어를 입력하세요")
     with _lock:
-        vec = encode_text(STATE["model"], STATE["proc"], [query], STATE["device"])
+        vec = _encode_text_query(query)                 # 템플릿 앙상블 (한/영 자동)
         pool = min(max(int(topk) * 12, 120), STATE["index"].ntotal)
         scores, idxs = STATE["index"].search(vec, pool)
-    results = _dedup_pack(idxs[0], scores[0], int(topk))   # 출원번호 중복 제거
+    results = _group_pack(idxs[0], scores[0], int(topk))   # 출원별 top-2 뷰 평균 집계
     return JSONResponse({
         "count": len(results),
         "query": query,

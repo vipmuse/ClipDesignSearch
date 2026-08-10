@@ -36,5 +36,11 @@ train:
   # 양방향 검색(텍스트→도면 + 도면→도면) 확정 → img2img loss 활성.
   # 이미지↔이미지(같은 design_id) supervised contrastive loss 가중치. 0이면 순수 CLIP loss
   img2img_weight: 0.5
-  eval_ratio: 0.1            # 홀드아웃 평가 비율
+  eval_ratio: 0.1            # 홀드아웃 평가 비율 (design_id 단위 분할)
   log_every: 20
+
+  # ── 정확도 개선 옵션 (ACCURACY.md 참조) ──
+  pk_views: 4                # PK 샘플러: 배치 = 디자인 × 뷰 ≤K. 1이면 기존 랜덤 배치
+  locarno_aware: true        # 같은 로카르노 클래스로 배치 구성 → 하드 네거티브
+  mask_false_negatives: true # 같은 design_id/동일 텍스트를 InfoNCE 네거티브에서 제외
+  augment: true              # 학습 시 도면 증강 (소회전·스케일·라인두께·viewpoint 텍스트)

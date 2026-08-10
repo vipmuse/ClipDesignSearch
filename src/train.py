@@ -1,4 +1,10 @@
-"""대조학습 루프: CLIP 이미지↔텍스트 + (선택) 이미지↔이미지 supervised contrastive.
+"""대조학습 루프: CLIP 이미지↔텍스트 + 이미지↔이미지 supervised contrastive.
+
+정확도 개선 사항(ACCURACY.md):
+  - design_id 단위 train/eval 분할 (평가 누수 제거)
+  - PK 배치 샘플러: 배치 = 디자인 P개 × 뷰 K장 → img2img loss가 실제 발화
+  - masked InfoNCE: 같은 design_id·동일 텍스트를 네거티브로 밀어내는 노이즈 제거
+  - 학습 시 도면 증강 (소회전·스케일·라인두께)
 
 사용법:
   python src/train.py --config configs/lora_clip.yaml
@@ -14,12 +20,26 @@ import torch.nn.functional as F
 import yaml
 from torch.utils.data import DataLoader
 
-from dataset import Collator, PairDataset, load_records
+from dataset import Collator, PairDataset, PKBatchSampler, load_records, split_by_design
 from model import build_model
 
 
 def set_seed(s):
     random.seed(s); np.random.seed(s); torch.manual_seed(s); torch.cuda.manual_seed_all(s)
+
+
+def masked_clip_loss(logits_per_image, pos_mask):
+    """멀티-positive InfoNCE (양방향 평균).
+
+    pos_mask[i,j]=True ⇔ (이미지 i, 텍스트 j)가 정답 쌍. 대각선 외에도 같은
+    design_id의 다른 뷰·동일 텍스트를 positive로 인정해, 표준 CLIP loss가 이들을
+    네거티브로 밀어내는 false negative 노이즈를 제거한다."""
+    m = pos_mask.float()
+    logp_i2t = logits_per_image.log_softmax(dim=1)      # 이미지→텍스트 방향
+    logp_t2i = logits_per_image.log_softmax(dim=0)      # 텍스트→이미지 방향
+    li = -(m * logp_i2t).sum(1) / m.sum(1).clamp(min=1)
+    lt = -(m * logp_t2i).sum(0) / m.sum(0).clamp(min=1)
+    return (li.mean() + lt.mean()) / 2
 
 
 def supcon_loss(feats, labels, temperature=0.1):
@@ -41,30 +61,37 @@ def supcon_loss(feats, labels, temperature=0.1):
     return -mean_log_prob[valid].mean()
 
 
-def _recall(logits):
-    """대각선이 정답인 유사도 행렬에서 R@{1,5,10} 히트 수 반환."""
-    B = logits.size(0)
-    target = torch.arange(B, device=logits.device)
+def _pos_mask(design_label, text_label):
+    """레코드 i,j가 같은 디자인이거나 동일 텍스트면 positive. 대각선 포함, 대칭."""
+    return (design_label[:, None] == design_label[None, :]) | \
+           (text_label[:, None] == text_label[None, :])
+
+
+def _recall(logits, pos):
+    """멀티-positive 인식 R@{1,5,10}: top-K 안에 정답이 하나라도 있으면 히트."""
     ranks = logits.argsort(dim=1, descending=True)
-    hit = (ranks == target[:, None])
-    return hit[:, :1].any(1).sum().item(), hit[:, :5].any(1).sum().item(), hit[:, :10].any(1).sum().item(), B
+    ps = pos.gather(1, ranks)                          # 정렬 순서로 정답 재배열
+    return (ps[:, :1].any(1).sum().item(), ps[:, :5].any(1).sum().item(),
+            ps[:, :10].any(1).sum().item(), logits.size(0))
 
 
 @torch.no_grad()
 def evaluate(model, loader, device, max_batches=None):
-    """양방향 Recall@{1,5,10} (배치 단위 근사). Text→Image, Image→Text 모두.
-    도면→도면(I→I)은 전체 갤러리 필요 → embed.py의 FAISS 인덱스로 오프라인 평가."""
+    """양방향 Recall@{1,5,10} (배치 단위 프록시). 공식 수치는 eval_retrieval.py
+    (전체 갤러리 R@K/mAP) 기준 — 여기는 학습 중 빠른 추세 확인용."""
     model.eval()
     t = [0, 0, 0]; i = [0, 0, 0]; n = 0
     for bi, enc in enumerate(loader):
         if max_batches and bi >= max_batches:
             break
-        enc.pop("design_label", None)
+        d = enc.pop("design_label").to(device)
+        tl = enc.pop("text_label").to(device)
+        pos = _pos_mask(d, tl)                         # 대칭 → 양방향 공용
         enc = {k: v.to(device) for k, v in enc.items()}
         out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
                     pixel_values=enc["pixel_values"])
-        *tr, B = _recall(out.logits_per_text)        # Text→Image
-        *ir, _ = _recall(out.logits_per_image)       # Image→Text
+        *tr, B = _recall(out.logits_per_text, pos)     # Text→Image
+        *ir, _ = _recall(out.logits_per_image, pos)    # Image→Text
         for k in range(3):
             t[k] += tr[k]; i[k] += ir[k]
         n += B
@@ -108,18 +135,28 @@ def main():
     model.to(device)
 
     records = load_records(t["data_path"])
-    random.shuffle(records)
     if args.limit:
         records = records[:args.limit]
-    n_eval = max(1, int(len(records) * t["eval_ratio"]))
-    eval_recs, train_recs = records[:n_eval], records[n_eval:]
+    # design_id 단위 분할: 같은 디자인의 뷰가 train/eval 양쪽에 갈리는 누수 방지
+    train_recs, eval_recs = split_by_design(records, t["eval_ratio"], t["seed"])
+    print(f"split by design_id: train {len(train_recs)} / eval {len(eval_recs)} records")
 
-    collate = Collator(processor, cfg["model"]["image_size"], args.image_root)
-    train_loader = DataLoader(PairDataset(train_recs), batch_size=t["batch_size"],
-                              shuffle=True, num_workers=t["num_workers"],
-                              collate_fn=collate, drop_last=True)
+    collate_train = Collator(processor, cfg["model"]["image_size"], args.image_root,
+                             augment=t.get("augment", True))
+    collate_eval = Collator(processor, cfg["model"]["image_size"], args.image_root)
+
+    pk_views = t.get("pk_views", 4)
+    if pk_views > 1:                       # PK 샘플러: img2img supcon이 실제 발화하게 함
+        sampler = PKBatchSampler(train_recs, t["batch_size"], views_per_design=pk_views,
+                                 locarno_aware=t.get("locarno_aware", True), seed=t["seed"])
+        train_loader = DataLoader(PairDataset(train_recs), batch_sampler=sampler,
+                                  num_workers=t["num_workers"], collate_fn=collate_train)
+    else:                                  # 기존 랜덤 배치 (ablation용)
+        train_loader = DataLoader(PairDataset(train_recs), batch_size=t["batch_size"],
+                                  shuffle=True, num_workers=t["num_workers"],
+                                  collate_fn=collate_train, drop_last=True)
     eval_loader = DataLoader(PairDataset(eval_recs), batch_size=t["batch_size"],
-                             shuffle=False, num_workers=t["num_workers"], collate_fn=collate)
+                             shuffle=False, num_workers=t["num_workers"], collate_fn=collate_eval)
 
     # 파라미터 그룹: LoRA는 높은 LR, logit_scale은 낮은 LR
     logit_scale = model.base_model.model.logit_scale
@@ -138,6 +175,7 @@ def main():
         s / max(1, warmup) if s < warmup
         else 0.5 * (1 + math.cos(math.pi * (s - warmup) / max(1, total_steps - warmup)))))
 
+    mask_fn = t.get("mask_false_negatives", True)
     eval_batches = args.eval_batches or None
     os.makedirs(t["output_dir"], exist_ok=True)
     print(f"baseline: {evaluate(model, eval_loader, device, eval_batches)}")
@@ -149,12 +187,16 @@ def main():
             break
         for i, enc in enumerate(train_loader):
             design_label = enc.pop("design_label").to(device)
+            text_label = enc.pop("text_label").to(device)
             enc = {k: v.to(device) for k, v in enc.items()}
+            # 마스킹 비활성 시 대각선만 positive = 표준 CLIP InfoNCE와 동일
+            pos = _pos_mask(design_label, text_label) if mask_fn \
+                else torch.eye(design_label.size(0), dtype=torch.bool, device=device)
 
             with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):
                 out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
-                            pixel_values=enc["pixel_values"], return_loss=True)
-                loss = out.loss                              # CLIP 이미지↔텍스트 InfoNCE
+                            pixel_values=enc["pixel_values"])
+                loss = masked_clip_loss(out.logits_per_image, pos)   # 이미지↔텍스트
                 if t["img2img_weight"] > 0:
                     loss = loss + t["img2img_weight"] * supcon_loss(out.image_embeds, design_label)
                 loss = loss / t["grad_accum"]
