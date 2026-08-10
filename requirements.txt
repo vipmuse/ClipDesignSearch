@@ -11,3 +11,4 @@ pyyaml
 numpy
 faiss-cpu       # GPU면 faiss-gpu
 tqdm
+pytest          # 개발 전용 (테스트 실행)

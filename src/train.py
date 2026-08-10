@@ -61,10 +61,15 @@ def supcon_loss(feats, labels, temperature=0.1):
     return -mean_log_prob[valid].mean()
 
 
-def _pos_mask(design_label, text_label):
-    """레코드 i,j가 같은 디자인이거나 동일 텍스트면 positive. 대각선 포함, 대칭."""
-    return (design_label[:, None] == design_label[None, :]) | \
-           (text_label[:, None] == text_label[None, :])
+def _pos_mask(design_label):
+    """레코드 i,j가 같은 design_id면 positive. 대각선 포함, 대칭.
+
+    제목 동일성은 positive 근거가 되지 못한다. 고유 제목 28,859개 중 유일한 것이
+    141개뿐이라(2026-08 실측) 'Shoe'가 4,720건 반복된다. 제목이 같다고 묶으면 서로
+    다른 디자인이 정답으로 취급돼, 특히 locarno_aware 배치에서 마스크가 거의 전부
+    True가 되고 변별 그래디언트가 사라진다.
+    """
+    return design_label[:, None] == design_label[None, :]
 
 
 def _recall(logits, pos):
@@ -85,8 +90,7 @@ def evaluate(model, loader, device, max_batches=None):
         if max_batches and bi >= max_batches:
             break
         d = enc.pop("design_label").to(device)
-        tl = enc.pop("text_label").to(device)
-        pos = _pos_mask(d, tl)                         # 대칭 → 양방향 공용
+        pos = _pos_mask(d)                             # 대칭 → 양방향 공용
         enc = {k: v.to(device) for k, v in enc.items()}
         out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
                     pixel_values=enc["pixel_values"])
@@ -187,10 +191,9 @@ def main():
             break
         for i, enc in enumerate(train_loader):
             design_label = enc.pop("design_label").to(device)
-            text_label = enc.pop("text_label").to(device)
             enc = {k: v.to(device) for k, v in enc.items()}
             # 마스킹 비활성 시 대각선만 positive = 표준 CLIP InfoNCE와 동일
-            pos = _pos_mask(design_label, text_label) if mask_fn \
+            pos = _pos_mask(design_label) if mask_fn \
                 else torch.eye(design_label.size(0), dtype=torch.bool, device=device)
 
             with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):

@@ -158,8 +158,8 @@ class Collator:
     """PIL 전처리 + HF CLIPProcessor 토크나이즈/정규화를 배치로 묶는다.
 
     augment=True: 이미지 증강 + 확률적(30%) viewpoint 텍스트 부가 (학습 전용).
-    design_label / text_label: 같은 design_id·동일 텍스트를 positive로 묶는
-    멀티-positive loss(masked InfoNCE, supcon)용 정수 라벨.
+    design_label: 같은 design_id를 positive로 묶는 멀티-positive loss
+    (masked InfoNCE, supcon)용 정수 라벨.
     """
     processor: object
     image_size: int
@@ -188,10 +188,6 @@ class Collator:
         # 같은 design_id → 같은 정수 라벨 (이미지↔이미지 supervised contrastive용)
         uniq_d = {d: i for i, d in enumerate(dict.fromkeys(design_ids))}
         enc["design_label"] = torch.tensor([uniq_d[d] for d in design_ids], dtype=torch.long)
-        # 동일 텍스트 → 같은 정수 라벨 (InfoNCE false-negative 마스킹용)
-        uniq_t = {}
-        enc["text_label"] = torch.tensor(
-            [uniq_t.setdefault(t, len(uniq_t)) for t in texts], dtype=torch.long)
         return enc
 
 
