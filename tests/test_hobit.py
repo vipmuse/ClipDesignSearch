@@ -158,3 +158,44 @@ def test_len은_배치_수와_일치():
     s = HobitBatchSampler(recs, batch_size=16, pool=64, seed=1)
     s.set_embeddings(_two_clusters(len(recs)))
     assert len(s) == len(list(s))
+
+
+from hobit import embed_records  # noqa: E402
+
+
+def test_embed_records는_레코드_순서를_보존한다(tmp_path):
+    from PIL import Image
+
+    from dataset import preprocess_drawing
+    for i in range(5):
+        Image.new("RGB", (16, 16), (i * 10, 0, 0)).save(tmp_path / f"{i}.png")
+    recs = [{"image": f"{i}.png"} for i in range(5)]
+
+    def fake_encode(imgs):                       # 픽셀값을 그대로 벡터로
+        return np.array([[im.getpixel((0, 0))[0]] * 3 for im in imgs], dtype="float32")
+
+    got = embed_records(recs, str(tmp_path), 16, fake_encode, batch_size=2)
+    # preprocess_drawing이 내부에서 그레이스케일 변환을 하므로 R값이 아니라 휘도(L)값이
+    # 나온다 — 순서 보존이 검증 대상이지 원본 R값 보존이 아니므로 실제 변환값과 비교한다.
+    expect = [preprocess_drawing(Image.new("RGB", (16, 16), (i * 10, 0, 0)), 16).getpixel((0, 0))[0]
+              for i in range(5)]
+    assert got.shape == (5, 3)
+    assert [int(v[0]) for v in got] == expect
+    assert expect == sorted(expect), "픽스처 전제(밝기가 i에 따라 단조증가)가 깨졌다"
+
+
+def test_embed_records는_깨진_이미지를_0벡터로_채워_정렬을_유지한다(tmp_path):
+    from PIL import Image
+
+    from dataset import preprocess_drawing
+    Image.new("RGB", (16, 16), (10, 0, 0)).save(tmp_path / "ok.png")
+    recs = [{"image": "missing.png"}, {"image": "ok.png"}]
+
+    def fake_encode(imgs):
+        return np.array([[im.getpixel((0, 0))[0]] * 3 for im in imgs], dtype="float32")
+
+    got = embed_records(recs, str(tmp_path), 16, fake_encode, batch_size=2)
+    expect_ok = preprocess_drawing(Image.new("RGB", (16, 16), (10, 0, 0)), 16).getpixel((0, 0))[0]
+    assert got.shape == (2, 3)
+    assert np.all(got[0] == 0), "열 수 없는 이미지 자리가 0 벡터가 아니다"
+    assert int(got[1][0]) == expect_ok, "행이 밀려 레코드와 어긋났다"

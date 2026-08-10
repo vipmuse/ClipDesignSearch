@@ -8,7 +8,12 @@ ICML 2026 "HOBIT: Hardness Optimized Batch Sampling for InfoNCE Training"의 원
 임베딩에 근거해 수행한다. 모델은 알지 못하며 임베딩을 주입받는다 — GPU 없이 테스트하기
 위해서이자, 임베딩 갱신 주기를 학습 루프가 결정하게 하기 위해서다.
 """
+import os
+
 import numpy as np
+from PIL import Image
+
+from dataset import preprocess_drawing
 
 
 def _int_labels(values):
@@ -105,3 +110,38 @@ class HobitBatchSampler:
             for p in sorted(chosen_pos, reverse=True):   # 뒤에서부터 swap-remove
                 m -= 1
                 rem[p] = rem[m]
+
+
+def embed_records(records, image_root, size, encode_fn, batch_size=64):
+    """레코드 순서를 보존한 [N, D] 임베딩. encode_fn(PIL 리스트) -> [B, D].
+
+    행 i가 records[i]에 대응하는 것이 이 함수의 유일한 계약이다. 샘플러가 행 번호로
+    design_id·텍스트를 조회하므로, 열 수 없는 이미지를 건너뛰면 그 뒤 전부가 밀려
+    엉뚱한 레코드의 임베딩으로 배치를 짜게 된다. 실패 자리는 0 벡터로 채운다.
+    """
+    Image.MAX_IMAGE_PIXELS = None
+    out, buf, buf_rows, dim = None, [], [], None
+
+    def flush():
+        nonlocal out, dim
+        if not buf:
+            return
+        vec = np.asarray(encode_fn(buf), dtype="float32")
+        if out is None:
+            dim = vec.shape[1]
+            out = np.zeros((len(records), dim), dtype="float32")
+        out[buf_rows] = vec
+        buf.clear(); buf_rows.clear()
+
+    for i, r in enumerate(records):
+        try:
+            im = Image.open(os.path.join(image_root, r["image"]))
+            im.load()
+            buf.append(preprocess_drawing(im.convert("RGB"), size))
+            buf_rows.append(i)
+        except Exception:
+            continue                              # 0 벡터로 남는다 (정렬 유지)
+        if len(buf) >= batch_size:
+            flush()
+    flush()
+    return out if out is not None else np.zeros((len(records), 1), dtype="float32")

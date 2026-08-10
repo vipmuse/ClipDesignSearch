@@ -22,6 +22,7 @@ import yaml
 from torch.utils.data import DataLoader
 
 from dataset import Collator, PairDataset, PKBatchSampler, load_records, split_by_design, take_limit
+from hobit import HobitBatchSampler, embed_records
 from model import build_model
 
 
@@ -61,6 +62,18 @@ def supcon_loss(feats, labels, temperature=0.1):
     log_prob = sim - torch.logsumexp(sim, dim=1, keepdim=True)
     mean_log_prob = (pos_mask * log_prob).sum(1) / pos_mask.sum(1).clamp(min=1)
     return -mean_log_prob[valid].mean()
+
+
+@torch.no_grad()
+def _encode_for_hobit(model, processor, imgs, device, dtype):
+    """HOBIT 배치 구성용 이미지 임베딩 [B, D] (L2 정규화). 증강 없이 결정적으로."""
+    px = processor(images=imgs, return_tensors="pt")["pixel_values"].to(device)
+    with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):
+        emb = model.get_image_features(pixel_values=px)
+    if not torch.is_tensor(emb):          # MetaCLIP 2는 출력 객체를 반환
+        emb = emb.pooler_output
+    emb = F.normalize(emb.float(), dim=-1)
+    return emb.cpu().numpy().astype("float32")
 
 
 def _pos_mask(design_label):
@@ -150,13 +163,21 @@ def main():
                              augment=t.get("augment", True))
     collate_eval = Collator(processor, cfg["model"]["image_size"], args.image_root)
 
-    pk_views = t.get("pk_views", 4)
-    if pk_views > 1:                       # PK 샘플러: img2img supcon이 실제 발화하게 함
-        sampler = PKBatchSampler(train_recs, t["batch_size"], views_per_design=pk_views,
+    sampler = None
+    which = t.get("sampler", "pk" if t.get("pk_views", 4) > 1 else "random")
+    if which == "hobit":
+        sampler = HobitBatchSampler(
+            train_recs, t["batch_size"], pool=t.get("hobit_pool", 4096),
+            penalty=t.get("hobit_penalty", 10.0),
+            mask_false_negatives=t.get("mask_false_negatives", True), seed=t["seed"])
+    elif which == "pk":
+        sampler = PKBatchSampler(train_recs, t["batch_size"],
+                                 views_per_design=t.get("pk_views", 4),
                                  locarno_aware=t.get("locarno_aware", True), seed=t["seed"])
+    if sampler is not None:
         train_loader = DataLoader(PairDataset(train_recs), batch_sampler=sampler,
                                   num_workers=t["num_workers"], collate_fn=collate_train)
-    else:                                  # 기존 랜덤 배치 (ablation용)
+    else:                                  # 기존 랜덤 배치 (baseline)
         train_loader = DataLoader(PairDataset(train_recs), batch_size=t["batch_size"],
                                   shuffle=True, num_workers=t["num_workers"],
                                   collate_fn=collate_train, drop_last=True)
@@ -188,6 +209,18 @@ def main():
     step = 0
     stop = False
     for epoch in range(t["epochs"]):
+        if isinstance(sampler, HobitBatchSampler) and \
+                epoch % max(1, t.get("hobit_refresh_every", 1)) == 0:
+            # 배치 구성이 "현재" 모델 기준이어야 hard negative가 의미를 갖는다.
+            # 학습 집합 전체를 1회 추론하는 비용이 에폭마다 든다 → refresh_every로 조절.
+            model.eval()
+            with torch.no_grad():
+                emb = embed_records(
+                    train_recs, args.image_root, cfg["model"]["image_size"],
+                    lambda imgs: _encode_for_hobit(model, processor, imgs, device, dtype))
+            model.train()
+            sampler.set_embeddings(emb)
+            print(f"[hobit] epoch {epoch}: 임베딩 {emb.shape} 갱신", flush=True)
         if stop:
             break
         for i, enc in enumerate(train_loader):
