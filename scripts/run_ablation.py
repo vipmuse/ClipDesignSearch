@@ -34,6 +34,8 @@ import os
 import subprocess
 import sys
 
+import yaml
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 import registry  # noqa: E402
@@ -100,15 +102,21 @@ def eval_arm(name, adapter, cfg_path, args):
 
 
 def index_arm(name, adapter, cfg_path, args):
-    """방법별 FAISS 인덱스 구축. 웹 비교(Phase 4~5)가 이 산출물을 쓴다."""
+    """방법별 FAISS 인덱스 구축. 웹 비교(Phase 4~5)가 이 산출물을 쓴다.
+
+    embed.py build의 --data 기본값(data/pairs.jsonl)은 config와 무관한 하드코딩이라,
+    데이터를 명시하지 않으면 train/eval이 실제로 쓴 train.data_path와 다른 파일을
+    인덱싱할 수 있다(예: 어떤 방법이 subset_100k.jsonl을 쓰면). resolved config에서
+    직접 읽어 넘겨 세 단계가 항상 같은 데이터를 보게 한다.
+    """
     idx_dir = os.path.join(registry.method_dir(name), "index")
     if os.path.exists(os.path.join(idx_dir, "index_meta.json")) and not args.force:
         print(f"[{name}] 인덱스 존재 → 스킵")
         return
+    data_path = yaml.safe_load(open(cfg_path, encoding="utf-8"))["train"]["data_path"]
     cmd = [sys.executable, os.path.join("src", "embed.py"), "build",
-           "--config", cfg_path, "--adapter", adapter, "--index", idx_dir]
-    if args.data:
-        cmd += ["--data", args.data]
+           "--config", cfg_path, "--adapter", adapter, "--index", idx_dir,
+           "--data", data_path]
     if args.image_root:
         cmd += ["--image-root", args.image_root]
     if args.limit:
@@ -166,7 +174,6 @@ def main():
     ap.add_argument("--max-steps", type=int, default=0)
     ap.add_argument("--eval-batches", type=int, default=0)
     ap.add_argument("--image-root", default="", help="이미지 루트 (train/eval 동일 적용)")
-    ap.add_argument("--data", default="", help="학습·평가·인덱스 공통 데이터 (기본: config)")
     ap.add_argument("--quick", action="store_true", help="스모크: --limit 2000 --epochs 1")
     ap.add_argument("--force", action="store_true", help="기존 어댑터/평가 무시하고 재실행")
     ap.add_argument("--report-only", action="store_true")

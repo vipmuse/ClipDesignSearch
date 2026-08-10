@@ -46,3 +46,13 @@ def test_지문_파일이_없으면_거부(tmp_path):
     d.mkdir()
     ok, why = check_index_meta(str(d), CFG, "adapters/a", "data/pairs.jsonl")
     assert not ok and "index_meta.json" in why
+
+
+def test_method_이름만_다르면_허용(tmp_path):
+    """method 이름은 참고용 — 판정에 쓰지 않는다(브리프 명시 동작). 나머지가 전부
+    같으면 method가 달라도 통과해야 한다."""
+    cfg_a = {**CFG, "method": {"name": "hobit"}}
+    cfg_b = {**CFG, "method": {"name": "tic"}}
+    fp = index_fingerprint(cfg_a, "adapters/a", "data/pairs.jsonl")
+    ok, why = check_index_meta(_write(tmp_path, fp), cfg_b, "adapters/a", "data/pairs.jsonl")
+    assert ok and why == ""
