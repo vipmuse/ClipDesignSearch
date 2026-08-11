@@ -378,8 +378,7 @@ Phase 0~2는 방법 구현과 무관하게 선행되어야 하고, Phase 4~5는 
 
 `feature/hobit-sampler` 최종 리뷰에서 확인된, 정확성에는 영향이 없으나 남겨둔 것들.
 
-- **tqdm 출력량**: `run_ablation.run()`이 `text=True`로 자식을 읽어 tqdm의 `
-`가 개행으로
+- **tqdm 출력량**: `run_ablation.run()`이 `text=True`로 자식을 읽어 tqdm의 캐리지리턴이 개행으로
   번역된다. 갱신마다 `train.log` 한 줄 + 콘솔 한 줄이 되어 refresh 1회에 수만 줄이 될 수
   있다. `src/embed.py`의 인덱스 빌드도 같은 양상이라 기존 패턴이지만, 로그가 시끄러우면
   `mininterval=5`로 완화한다.
