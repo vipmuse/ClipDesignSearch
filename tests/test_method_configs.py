@@ -162,11 +162,17 @@ def test_tic과_hobit은_서로_다른_축을_바꾼다():
 
 def test_loracap은_baseline과_lora_블록만_다르다():
     """loracap이 바꾸는 축은 파라미터 용량 하나여야 Δ가 그 기여로 읽힌다."""
+    import yaml
     c = registry.resolve("loracap")
     b = registry.resolve("baseline")
     five = ("pk_views", "locarno_aware", "mask_false_negatives", "augment", "img2img_weight")
     assert [c["train"][k] for k in five] == [b["train"][k] for k in five]
-    assert c["model"] == b["model"], "loracap은 모델을 바꾸지 않는다 (해상도 축은 hires378의 몫)"
+    # resolved끼리 비교하면 둘 다 model 블록이 없어 항상 참이라 아무것도 검증하지 못한다.
+    # YAML 원문에 model 블록이 없다는 것을 봐야 한다 - 해상도 축은 hires378의 몫이고,
+    # 여기에 model이 생기면 두 방법이 같은 축을 건드리게 된다.
+    spec = yaml.safe_load(open(os.path.join(registry.METHODS_DIR, "loracap.yaml"),
+                               encoding="utf-8"))
+    assert "model" not in spec, "loracap.yaml에 model 오버라이드가 생겼다 - 해상도 축 침범"
 
 
 def test_loracap의_lora_블록이_베이스보다_크다():
