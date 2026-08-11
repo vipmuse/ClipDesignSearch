@@ -176,11 +176,12 @@ outputs/methods/<name>/
 | (선택) `tic` | baseline + 텍스트 모달 내부 대조(헤드명사+상한 선택) | ③ 같은 물품군의 다른 물품이 텍스트 공간에서 구분되지 않음 |
 | (선택) `pk-only` | PK만, 마스킹 없이 | 유해 상호작용 실증 |
 | (선택) `all-mlp` / `all-proj` / `all-r32` | all + LoRA 확장 | ⑫ 계열, 최종 레시피 위 추가 기여 |
-| (선택) `loracap` | baseline + LoRA 용량 확장(rank 32, fc1/fc2, projection) | ⑫ 저비용 용량 확장 |
+| (선택) `loracap` | baseline + LoRA 용량 확장(rank 32, fc1/fc2, projection) | ⑫ 파라미터 용량 축의 단독 기여 (학습 파라미터 4.5배, 표에서 가장 비싼 arm) |
 
 `(선택)` 표시가 없는 행(`base`~`all`)만 `run_ablation.py`를 인자 없이 돌렸을 때 학습된다
 (= `DEFAULT_ARMS` + 항상 앞에 붙는 `base`). `(선택)` 행은 `--arms`로 이름을 적어야 돈다 —
-`hobit`과 `tic`도 여기 속한다(각각 비용·미검증 하이퍼파라미터 때문).
+`hobit`·`tic`·`loracap`도 여기 속한다(각각 배치 구성 비용, 미검증 하이퍼파라미터,
+학습 파라미터 4.5배로 인한 VRAM·스텝 비용 때문).
 
 ```powershell
 python scripts\run_ablation.py --quick        # 스모크 (레코드 2000 × 1 epoch)
@@ -197,6 +198,18 @@ python scripts\run_ablation.py --arms baseline loracap --epochs 3   # 파라미�
   배치 구성용 임베딩을 갱신한다(실측 디코딩 98.6분 + ViT-H forward 27.9분 → 디코딩을
   `num_workers`로 병렬화해도 에폭당 수십 분 추가). 비용을 줄이려면 메서드 YAML의
   `hobit_refresh_every`를 2 이상으로 (N 에폭마다 1회 갱신).
+- `loracap` arm은 학습 파라미터가 4.5배(8,388,609 → 37,888,001)라 활성값도 같이 커진다.
+  batch 32 실측(RTX 5090 31.84GiB, bf16, 224px, 제목이 긴 배치 = 토큰 77 기준):
+  체크포인팅을 끄면 peak 32.03GiB로 VRAM을 넘겨(여유 0.00GiB) 시스템 메모리로 스필한다:
+  크래시도 경고도 없이 0.28 → 4.05 s/step(약 14배)이 되고, 13,285 step/epoch 기준
+  `--epochs 3`이 약 6시간에서 약 45시간이 된다. 그래서 메서드 YAML에
+  `gradient_checkpointing: true`가 켜져 있다(활성값을 저장하는 대신 backward에서 재계산
+  → peak 10.45GiB, 0.53 s/step, 여유 21.4GiB). 남는 비용은 baseline 대비 약 1.9배
+  (0.28 → 0.53 s/step)다. batch_size를 줄여 VRAM을 맞추지 않은 이유는 in-batch 네거티브
+  수까지 같이 줄어 Δ를 용량 축의 기여로 읽을 수 없게 되기 때문이다(해상도 축을 미룬 것과
+  같은 이유).
+- 같은 이유로 `all-mlp`/`all-r32`도 batch 32에서 스필한다(fc1/fc2 활성값이 지배적).
+  이 브랜치에서는 손대지 않았다 (후속 작업에서 같은 플래그를 켜면 된다).
 - 학습 1회가 오래 걸리므로 `--epochs 3`으로 좁힌 뒤, 유망한 조합만 풀 epoch 재학습 권장.
 - 중단돼도 재실행하면 완료된 arm(어댑터/평가/인덱스 존재)은 자동 스킵 (`--force`로 무시).
 - 인덱스 빌드는 `--limit`을 포함한 지문(`index/index_meta.json`)을 남긴다. `--quick`으로

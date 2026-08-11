@@ -160,19 +160,48 @@ def test_tic과_hobit은_서로_다른_축을_바꾼다():
     assert hobit.get("tic_weight", 0.0) == 0.0, "hobit이 손실까지 바꾸고 있다"
 
 
+# train 블록 비교에서 빼는 키와 그 이유:
+#   output_dir            - arm 이름으로 자동 생성되므로 언제나 다르다.
+#   gradient_checkpointing - loracap이 batch 32에서 VRAM 스필 없이 돌기 위한 것.
+#                            활성값을 재계산할 뿐 배치·in-batch 네거티브·손실이 그대로라
+#                            수학적으로 동일한 학습이다(= 축을 바꾸지 않는다).
+TRAIN_DIFF_EXEMPT = ("output_dir", "gradient_checkpointing")
+
+
 def test_loracap은_baseline과_lora_블록만_다르다():
-    """loracap이 바꾸는 축은 파라미터 용량 하나여야 Δ가 그 기여로 읽힌다."""
+    """loracap이 바꾸는 축은 파라미터 용량 하나여야 Δ가 그 기여로 읽힌다.
+
+    다섯 토글만 비교하면 batch_size·lr_lora·epochs·grad_accum이 몰래 바뀌어도
+    통과한다(넷 다 mutation으로 확인). 특히 '용량이 커서 VRAM이 모자라니 batch_size를
+    줄이자'는 가장 그럴듯한 미래 수정이 바로 그 구멍으로 들어온다 - 배치를 줄이면
+    네거티브 수 축이 함께 바뀌어 Δ가 용량 기여가 아니게 된다. train 블록 전체를 본다.
+    """
     import yaml
     c = registry.resolve("loracap")
     b = registry.resolve("baseline")
-    five = ("pk_views", "locarno_aware", "mask_false_negatives", "augment", "img2img_weight")
-    assert [c["train"][k] for k in five] == [b["train"][k] for k in five]
-    # resolved끼리 비교하면 둘 다 model 블록이 없어 항상 참이라 아무것도 검증하지 못한다.
-    # YAML 원문에 model 블록이 없다는 것을 봐야 한다 - 해상도 축은 hires378의 몫이고,
-    # 여기에 model이 생기면 두 방법이 같은 축을 건드리게 된다.
+    ct = {k: v for k, v in c["train"].items() if k not in TRAIN_DIFF_EXEMPT}
+    bt = {k: v for k, v in b["train"].items() if k not in TRAIN_DIFF_EXEMPT}
+    diff = {k: (ct.get(k, "<없음>"), bt.get(k, "<없음>"))
+            for k in set(ct) | set(bt) if ct.get(k) != bt.get(k)}
+    assert not diff, f"loracap이 train 축까지 바꾼다 (키: (loracap, baseline)): {diff}"
+    # 해상도 축은 hires378의 몫이다. 두 검사는 잡는 것이 서로 다르다:
+    #   resolved 비교 - 어느 쪽 YAML에 model이 생겨도 잡는다(baseline 쪽 포함).
+    #                   둘 다 configs/lora_clip.yaml의 model을 상속하므로 항상 참이 아니다.
+    #   원문 검사     - loracap.yaml이 베이스와 같은 값으로 model을 복붙해도 잡는다
+    #                   (resolved는 같아지므로 위 단언은 통과한다).
+    assert c["model"] == b["model"], "resolved model 블록이 갈렸다 - 해상도 축 침범"
     spec = yaml.safe_load(open(os.path.join(registry.METHODS_DIR, "loracap.yaml"),
                                encoding="utf-8"))
     assert "model" not in spec, "loracap.yaml에 model 오버라이드가 생겼다 - 해상도 축 침범"
+
+
+def test_loracap만_그래디언트_체크포인팅을_켠다():
+    """loracap은 batch 32에서 활성값이 32GiB를 넘겨 스필한다(실측 5.25s/step, 여유 0).
+    체크포인팅이 꺼지면 크래시 없이 19배 느려지기만 하므로 로그로는 안 보인다.
+    baseline 쪽이 켜지면 비교의 기준점이 느려지는 것과 별개로 위 train 비교가
+    무의미해지므로 양쪽을 함께 못박는다."""
+    assert registry.resolve("loracap")["train"]["gradient_checkpointing"] is True
+    assert registry.resolve("baseline")["train"]["gradient_checkpointing"] is False
 
 
 def test_loracap의_lora_블록이_베이스보다_크다():
@@ -182,6 +211,10 @@ def test_loracap의_lora_블록이_베이스보다_크다():
     assert c["r"] > b["r"] and c["alpha"] > b["alpha"]
     assert set(c["target_modules"]) > set(b["target_modules"]), "fc1/fc2가 추가되지 않았다"
     assert c["train_projections"] is True and b["train_projections"] is False
+    # 인코더 선택은 다른 축이다: apply_to_text: false 하나로 용량이 줄고 학습되는
+    # 인코더까지 바뀌는데, 위 네 단언은 전부 통과한다.
+    for k in ("apply_to_vision", "apply_to_text"):
+        assert c[k] is True and b[k] is True, f"loracap이 {k}를 바꿨다 - 인코더 축 침범"
 
 
 def test_loracap은_손실과_배치_구성_축을_건드리지_않는다():

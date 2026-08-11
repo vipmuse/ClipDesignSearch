@@ -8,6 +8,12 @@ train:
   mask_false_negatives: false
   augment: false
   img2img_weight: 0.0
+  # 용량을 키우면 활성값도 커진다: batch 32 실측에서 peak 32.03GiB로 32GB VRAM을
+  # 넘겨(여유 0) 시스템 메모리로 스필하고, 크래시 없이 0.28 -> 4.05 s/step이 됐다.
+  # 체크포인팅을 켜면 10.45GiB / 0.53 s/step. batch_size를 줄이는 대신 이걸 쓰는
+  # 이유는 배치를 줄이면 네거티브 수 축까지 바뀌어 용량 축의 기여로 읽을 수 없기
+  # 때문이다. (ACCURACY.md 3-1의 비용 주석 참조)
+  gradient_checkpointing: true
 lora:
   r: 32
   alpha: 64

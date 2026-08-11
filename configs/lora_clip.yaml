@@ -26,6 +26,10 @@ train:
   # batch 64는 ViT-H에서 peak 37.5GB로 32GB VRAM 초과→스필로 53배 느림. batch 32(peak 23GB)가 최적.
   batch_size: 32
   grad_accum: 1
+  # 활성값을 저장하는 대신 backward에서 재계산 - VRAM 급감, 스텝은 약 2배.
+  # 배치를 줄이지 않고 VRAM을 확보하는 유일한 수단이다(배치를 줄이면 in-batch
+  # 네거티브 수까지 같이 줄어 비교 축이 섞인다). 필요한 arm에서만 켠다.
+  gradient_checkpointing: false
   lr_lora: 2.0e-4
   lr_logit_scale: 1.0e-5
   weight_decay: 0.01
