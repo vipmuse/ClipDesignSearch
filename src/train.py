@@ -23,6 +23,7 @@ import yaml
 from torch.utils.data import DataLoader
 
 from dataset import Collator, PairDataset, PKBatchSampler, load_records, split_by_design, take_limit
+from gradcache import cached_grads
 from hobit import HobitBatchSampler, refresh_embeddings
 from model import build_model
 
@@ -145,6 +146,18 @@ def compose_loss(out, pos, t, design_label, text_label, head_label):
     return loss, stats
 
 
+def _encode_batch(model, enc, device, dtype):
+    """배치 하나를 순전파해 (out, 라벨들)을 돌려준다. 2패스 양쪽에서 쓴다."""
+    design_label = enc.pop("design_label").to(device)
+    text_label = enc.pop("text_label").to(device)
+    head_label = enc.pop("head_label").to(device)
+    enc = {k: v.to(device) for k, v in enc.items()}
+    with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):
+        out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
+                    pixel_values=enc["pixel_values"])
+    return out, design_label, text_label, head_label, enc
+
+
 @torch.no_grad()
 def _encode_for_hobit(model, processor, imgs, device, dtype):
     """HOBIT 배치 구성용 이미지 임베딩 [B, D] (L2 정규화). 증강 없이 결정적으로."""
@@ -243,6 +256,13 @@ def main():
         t["tic_weight"] = float(t["tic_weight"])
         t["tic_floor"] = float(t.get("tic_floor", TIC_FLOOR))
         t["tic_ceiling"] = float(t.get("tic_ceiling", TIC_CEILING))
+    n_chunks = t.get("grad_cache_chunks", 1)
+    if n_chunks > 1 and t["grad_accum"] > 1:
+        # GradCache 경로는 grad_accum을 적용하지 않는다 - 조용히 한쪽을 무시하면
+        # 유효 배치 크기가 설정과 달라져 config가 거짓말을 하게 된다.
+        print("오류: grad_cache_chunks와 grad_accum을 동시에 1보다 크게 설정할 수 없습니다 "
+              "(GradCache 경로는 grad_accum을 적용하지 않습니다).")
+        sys.exit(1)
     set_seed(t["seed"])
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[t["precision"]]
@@ -290,7 +310,13 @@ def main():
         {"params": [logit_scale], "lr": t["lr_logit_scale"], "weight_decay": 0.0},
     ])
 
-    steps_per_epoch = math.ceil(len(train_loader) / t["grad_accum"])
+    if n_chunks > 1:
+        # 청크 N개가 스텝 1회 - 자투리 그룹은 에폭 끝에서 버리므로 내림 나눗셈.
+        # ceil을 쓰면 total_steps가 실제 옵티마이저 스텝 수보다 커져 코사인
+        # 스케줄이 끝까지 내려오지 않는다.
+        steps_per_epoch = len(train_loader) // n_chunks
+    else:
+        steps_per_epoch = math.ceil(len(train_loader) / t["grad_accum"])
     # max_steps 지정 시 스케줄(워밍업·코사인)도 그 총량 기준 → LR이 제대로 오르내림
     total_steps = args.max_steps if args.max_steps else steps_per_epoch * t["epochs"]
     warmup = int(total_steps * t["warmup_ratio"])
@@ -328,42 +354,63 @@ def main():
                     num_workers=t["num_workers"])
             sampler.set_embeddings(emb)
             print(f"[hobit] epoch {epoch}: 임베딩 {emb.shape} 갱신", flush=True)
-        for i, enc in enumerate(train_loader):
-            design_label = enc.pop("design_label").to(device)
-            text_label = enc.pop("text_label").to(device)
-            head_label = enc.pop("head_label").to(device)
-            enc = {k: v.to(device) for k, v in enc.items()}
-            # 마스킹 비활성 시 대각선만 positive = 표준 CLIP InfoNCE와 동일
-            pos = _pos_mask(design_label) if mask_fn \
-                else torch.eye(design_label.size(0), dtype=torch.bool, device=device)
+        if n_chunks > 1:
+            # GradCache 2패스 경로: 청크 N개를 모아 옵티마이저 스텝 1회를 만든다.
+            # grad_accum은 여기서 적용하지 않는다 (시작 시점에 이미 상호배제 검증됨).
+            group = []
+            for enc in train_loader:
+                group.append(enc)
+                if len(group) < n_chunks:
+                    continue                       # 자투리 그룹은 에폭 끝에서 버린다
 
-            with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):
-                out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
-                            pixel_values=enc["pixel_values"])
-                # 키워드로 넘긴다. text_label과 head_label은 타입도 모양도 같아 자리가
-                # 바뀌어도 아무 데서도 안 터지고, 대신 eligible이 매 배치 공집합이 되어
-                # (제목이 같으면 헤드명사도 같다) tic arm이 이름만 tic인 baseline이 된다.
-                loss, lstats = compose_loss(out, pos, t, design_label=design_label,
-                                            text_label=text_label, head_label=head_label)
-                loss = loss / t["grad_accum"]
+                # 1패스: 임베딩만 모은다 (활성값은 청크 하나 분량만 유지).
+                # 청크마다 RNG 상태를 저장한다 - lora.dropout이 0.05라 2패스가 다른
+                # 드롭아웃 마스크를 보면 캐시한 그래디언트가 재계산된 순전파와 어긋난다.
+                embeds, labels, rng_states = [], [], []
+                with torch.no_grad():
+                    for e in group:
+                        rng_states.append((torch.get_rng_state(),
+                                           torch.cuda.get_rng_state(device)
+                                           if device == "cuda" else None))
+                        out, d, tl, hl, _ = _encode_batch(model, dict(e), device, dtype)
+                        embeds.append((out.image_embeds.detach(), out.text_embeds.detach()))
+                        labels.append((d, tl, hl))
+                img = torch.cat([a for a, _ in embeds])
+                txt = torch.cat([b for _, b in embeds])
+                design = torch.cat([d for d, _, _ in labels])
+                text_l = torch.cat([x for _, x, _ in labels])
+                head_l = torch.cat([x for _, _, x in labels])
 
-            loss.backward()
+                # pos는 반드시 연결된 전체 라벨로 - 청크별로 만들면 네거티브가 갇힌다
+                pos = _pos_mask(design) if mask_fn \
+                    else torch.eye(design.size(0), dtype=torch.bool, device=device)
+                loss_val, g_img, g_txt, lstats = cached_grads(
+                    img, txt, pos, t, design, text_l, head_l, logit_scale, compose_loss)
 
-            if (i + 1) % t["grad_accum"] == 0:
+                # 2패스: 청크별 재순전파 + 그래디언트 주입.
+                # 1패스에서 저장한 RNG 상태를 되돌려 같은 드롭아웃 마스크를 재현한다.
+                off = 0
+                for e, (cpu_state, cuda_state) in zip(group, rng_states):
+                    torch.set_rng_state(cpu_state)
+                    if cuda_state is not None:
+                        torch.cuda.set_rng_state(cuda_state, device)
+                    out, _, _, _, _ = _encode_batch(model, dict(e), device, dtype)
+                    k = out.image_embeds.size(0)
+                    torch.autograd.backward([out.image_embeds, out.text_embeds],
+                                            [g_img[off:off + k], g_txt[off:off + k]])
+                    off += k
+
                 torch.nn.utils.clip_grad_norm_(lora_params, 1.0)
                 optim.step(); sched.step(); optim.zero_grad()
                 with torch.no_grad():
                     logit_scale.clamp_(max=math.log(100))    # 온도 폭주 방지
                 step += 1
+                group = []
                 if step % t["log_every"] == 0:
-                    msg = (f"e{epoch} s{step}/{total_steps} "
-                           f"loss={loss.item()*t['grad_accum']:.4f} "
+                    msg = (f"e{epoch} s{step}/{total_steps} loss={loss_val:.4f} "
+                           f"eff_batch={t['batch_size'] * t['grad_cache_chunks']} "
                            f"lr={sched.get_last_lr()[0]:.2e}")
                     if tic_on:
-                        # 총 손실만 봐서는 "켜졌는데 대상이 없는지"와 "아예 안 켜졌는지"가
-                        # 갈라지지 않는다 - 둘 다 총 손실이 baseline과 비슷해 보인다. 항의
-                        # 값과 대상/위반 쌍 수를 따로 찍어야 그 둘이 구분되고, 가중 전 값을
-                        # 찍으므로 총 손실 중 TIC 몫도 로그만으로 다시 계산된다.
                         print(f"{msg} tic={lstats['tic']:.4e} "
                               f"(×{t['tic_weight']}→{t['tic_weight']*lstats['tic']:.4e}) "
                               f"위반/대상={lstats['n_violating']}/{lstats['n_eligible']}")
@@ -375,6 +422,54 @@ def main():
                 if args.max_steps and step >= args.max_steps:
                     stop = True
                     break
+        else:
+            for i, enc in enumerate(train_loader):
+                design_label = enc.pop("design_label").to(device)
+                text_label = enc.pop("text_label").to(device)
+                head_label = enc.pop("head_label").to(device)
+                enc = {k: v.to(device) for k, v in enc.items()}
+                # 마스킹 비활성 시 대각선만 positive = 표준 CLIP InfoNCE와 동일
+                pos = _pos_mask(design_label) if mask_fn \
+                    else torch.eye(design_label.size(0), dtype=torch.bool, device=device)
+
+                with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):
+                    out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
+                                pixel_values=enc["pixel_values"])
+                    # 키워드로 넘긴다. text_label과 head_label은 타입도 모양도 같아 자리가
+                    # 바뀌어도 아무 데서도 안 터지고, 대신 eligible이 매 배치 공집합이 되어
+                    # (제목이 같으면 헤드명사도 같다) tic arm이 이름만 tic인 baseline이 된다.
+                    loss, lstats = compose_loss(out, pos, t, design_label=design_label,
+                                                text_label=text_label, head_label=head_label)
+                    loss = loss / t["grad_accum"]
+
+                loss.backward()
+
+                if (i + 1) % t["grad_accum"] == 0:
+                    torch.nn.utils.clip_grad_norm_(lora_params, 1.0)
+                    optim.step(); sched.step(); optim.zero_grad()
+                    with torch.no_grad():
+                        logit_scale.clamp_(max=math.log(100))    # 온도 폭주 방지
+                    step += 1
+                    if step % t["log_every"] == 0:
+                        msg = (f"e{epoch} s{step}/{total_steps} "
+                               f"loss={loss.item()*t['grad_accum']:.4f} "
+                               f"lr={sched.get_last_lr()[0]:.2e}")
+                        if tic_on:
+                            # 총 손실만 봐서는 "켜졌는데 대상이 없는지"와 "아예 안 켜졌는지"가
+                            # 갈라지지 않는다 - 둘 다 총 손실이 baseline과 비슷해 보인다. 항의
+                            # 값과 대상/위반 쌍 수를 따로 찍어야 그 둘이 구분되고, 가중 전 값을
+                            # 찍으므로 총 손실 중 TIC 몫도 로그만으로 다시 계산된다.
+                            print(f"{msg} tic={lstats['tic']:.4e} "
+                                  f"(×{t['tic_weight']}→{t['tic_weight']*lstats['tic']:.4e}) "
+                                  f"위반/대상={lstats['n_violating']}/{lstats['n_eligible']}")
+                        else:
+                            print(msg)
+                    if args.save_every and step % args.save_every == 0:
+                        model.save_pretrained(os.path.join(t["output_dir"], "latest"))
+                        print(f"  [checkpoint] step {step} -> latest")
+                    if args.max_steps and step >= args.max_steps:
+                        stop = True
+                        break
 
         metrics = evaluate(model, eval_loader, device, eval_batches)
         print(f"[epoch {epoch}] {metrics}")
