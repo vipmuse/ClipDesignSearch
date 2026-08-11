@@ -112,26 +112,51 @@ def test_청크_수를_바꿔도_그래디언트가_같다():
         assert torch.allclose(gls, outs[0][2], atol=1e-6)
 
 
-def test_손실이_전체_유효_배치를_본다():
-    """청크 안이 아니라 전체에서 네거티브가 나와야 이 방법이 의미가 있다.
-    8개를 4청크로 쪼갠 손실은, 2개짜리 배치 4개를 따로 계산한 손실과 달라야 한다."""
+def _gradcache_grads_per_chunk(enc, logit_scale, xi, xt, pos, design, text, head, n_chunks):
+    """일부러 틀리게 짠 대조군: 청크마다 cached_grads를 독립적으로 호출한다.
+
+    이러면 각 청크의 손실이 그 청크 안의 원소만 네거티브로 본다 - GradCache가 막으려는
+    바로 그 버그(1패스에서 concat한 전체 임베딩이 아니라 청크 단위로 loss를 매기는 것)를
+    재현한 것이다. 이 헬퍼가 `_gradcache_grads`(정상 경로)와 다른 그래디언트를 내야
+    "네거티브가 청크에 갇히지 않는다"는 주장이 메커니즘 수준에서 성립한다."""
+    enc.zero_grad(set_to_none=True)
+    if logit_scale.grad is not None:
+        logit_scale.grad = None
+    n = xi.size(0)
+    chunk = n // n_chunks
+    for s in range(0, n, chunk):
+        sl = slice(s, s + chunk)
+        with torch.no_grad():                            # 1패스: 이 청크만의 임베딩
+            ic, tc = enc(xi[sl], xt[sl])
+        # 손실이 이 청크 안의 pos/design/text/head만 본다 - 다른 청크는 네거티브 후보에서 빠진다.
+        _, g_img, g_txt, _ = cached_grads(ic, tc, pos[sl, sl], T, design[sl], text[sl],
+                                          head[sl], logit_scale, compose_loss)
+        i, t = enc(xi[sl], xt[sl])                        # 2패스: 재순전파 + 주입
+        torch.autograd.backward([i, t], [g_img, g_txt])
+    return enc.img.weight.grad.clone(), enc.txt.weight.grad.clone(), logit_scale.grad.clone()
+
+
+def test_네거티브가_청크에_갇히면_전체_배치_경로와_다른_그래디언트가_나온다():
+    """실제 2패스 메커니즘(`_gradcache_grads`)을 청크별로 손실을 따로 매기는 대조군과
+    비교한다. 두 경로가 같은 그래디언트를 낸다면 GradCache가 청크 경계를 넘어 네거티브를
+    모으고 있다는 증거가 없는 것이다 - 이 테스트가 그 메커니즘을 직접 겨눈다."""
     xi, xt, design, text, head, pos = _fixture()
     enc = _ToyEncoder()
     ls = torch.tensor(2.6592, requires_grad=True)
-    with torch.no_grad():
-        i, t = enc(xi, xt)
-    full, _, _, _ = cached_grads(i, t, pos, T, design, text, head, ls, compose_loss)
+    base = {k: v.clone() for k, v in enc.state_dict().items()}
 
-    per_chunk = []
-    for s in range(0, 8, 2):
-        sl = slice(s, s + 2)
-        with torch.no_grad():
-            ic, tc = enc(xi[sl], xt[sl])
-        v, _, _, _ = cached_grads(ic, tc, pos[sl, sl], T, design[sl], text[sl], head[sl],
-                                  ls, compose_loss)
-        per_chunk.append(v)
-    assert abs(full - sum(per_chunk) / len(per_chunk)) > 1e-3, \
-        "전체 손실이 청크별 평균과 같다 - 네거티브가 청크 안에 갇혀 있다"
+    enc.load_state_dict(base)
+    gi_full, gt_full, _ = _gradcache_grads(enc, ls, xi, xt, pos, design, text, head, n_chunks=4)
+
+    enc.load_state_dict(base)
+    ls2 = torch.tensor(2.6592, requires_grad=True)
+    gi_trapped, gt_trapped, _ = _gradcache_grads_per_chunk(
+        enc, ls2, xi, xt, pos, design, text, head, n_chunks=4)
+
+    assert (gi_full - gi_trapped).abs().max() > 1e-3, \
+        "청크에 갇힌 네거티브와 전체 유효 배치가 같은 이미지 그래디언트를 낸다"
+    assert (gt_full - gt_trapped).abs().max() > 1e-3, \
+        "청크에 갇힌 네거티브와 전체 유효 배치가 같은 텍스트 그래디언트를 낸다"
 
 
 def test_stats가_compose_loss의_것을_그대로_전달한다():
