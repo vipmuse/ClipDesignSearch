@@ -64,47 +64,51 @@ def supcon_loss(feats, labels, temperature=0.1):
     return -mean_log_prob[valid].mean()
 
 
-def tic_loss(text_embeds, design_label, text_label, margin=0.9, return_stats=False):
-    """텍스트 모달 내부 대조(TIC). 가까이 붙은 '서로 다른' 제목 쌍만 밀어낸다.
+def tic_loss(text_embeds, design_label, text_label, head_label,
+             floor=0.75, ceiling=0.92, return_stats=False):
+    """텍스트 모달 내부 대조(TIC). 같은 물품군의 '서로 다른 물품'만 밀어낸다.
 
-    이 데이터의 핵심 난점은 제목이 거의 다 겹친다는 것이다 — 고유 제목 28,859개 중
-    27,412개(레코드의 96.7%)가 다른 제목과 헤드 명사를 공유한다(2026-08 실측).
-    'Container'와 'Beverage container'가 텍스트 공간에서 붙어 있으면 텍스트 검색이
-    둘을 가르지 못한다.
+    선택 규칙은 두 축이다 (2026-08-11 실측으로 확정, 스펙 §3.2):
+    - 같은 헤드명사: 'Pizza box'/'Storage box'처럼 관련 물품군으로 후보를 좁힌다.
+      이 축이 없으면 'Shoe'/'Bottle'(코사인 0.867)까지 대상이 된다.
+    - 코사인 < ceiling: 'Clothing hanger'/'Clothes hanger'(0.996)처럼 같은 물품의
+      표기 차이를 뺀다. 이들은 붙어 있어야 맞다.
+    여기에 문자열이 같은 쌍(같은 벡터라 분리 불가)과 같은 design_id 쌍을 더 뺀다.
 
-    두 종류를 대상에서 뺀다:
-    - 제목이 완전히 같은 쌍: 같은 문자열 → 같은 토큰 → 정확히 같은 벡터라 분리가
-      불가능하다. 억지로 밀면 인코더만 망가진다.
-    - 같은 design_id 쌍: 같은 디자인의 뷰는 붙어 있는 것이 맞다.
+    스칼라 임계값 하나로는 안 되는 이유: 베이스 모델 코사인은 물품 유사도 순으로
+    정렬되지 않는다. 목표 쌍 Container/Beverage container는 0.786인데 무관한
+    Shoe/Bottle이 0.867이고, 0.9를 넘는 것은 Eyeglasses/Glasses 같은 동의어다.
+    물품군 선택과 표기차 배제는 서로 다른 축이라 하나로 겸할 수 없다.
 
-    margin 이하로 떨어진 쌍은 이미 충분히 구분되므로 손실에 기여하지 않는다.
+    floor 위로 올라온 만큼만 hinge로 민다. floor 0.75는 같은 헤드명사 쌍 분포의
+    중앙값이라, 배치당 대상 약 3쌍 중 절반쯤이 실제로 밀린다.
 
-    return_stats=True면 (loss, 대상 쌍 수, 위반 쌍 수)를 돌려준다. 항의 값만으로는
-    "0에 가까움"이 '밀 게 없어서'인지 '필터가 다 걸러서'인지 구분되지 않는데,
-    그 둘은 정반대 처방을 요구한다(전자는 margin↑, 후자는 배치 구성 변경).
+    return_stats=True면 (loss, 대상 쌍 수, 위반 쌍 수)를 돌려준다. 대상 쌍 수는
+    상한을 적용한 뒤 기준이다 — 필터가 얼마나 걸러냈는지 로그에서 보이도록.
     """
-    # .float(): bf16 autocast 아래서는 t @ t.t()도 bf16이라 0.9 근처 표현 간격이
-    # ~0.002다 — margin 임계가 ±0.2% 흐려지고 hinge 값이 ~50단계로 양자화된다.
-    # F.normalize는 오늘의 MetaCLIP 2 출력에는 중복이지만 지우면 안 된다: 이 손실을
-    # 행 단위 스케일 불변으로 만드는 장치라, 그래디언트가 각 임베딩에 직교하게 투영돼
-    # 밀어내기가 노름을 부풀리거나 무너뜨리는 방향으로 새지 않는다.
+    # .float(): bf16 autocast 아래서는 t @ t.t()도 bf16이라 임계 근처 표현 간격이
+    # ~0.002다. F.normalize는 오늘의 MetaCLIP 2 출력에는 중복이지만 지우면 안 된다:
+    # 이 손실을 행 단위 스케일 불변으로 만들어, 밀어내기가 노름을 부풀리거나
+    # 무너뜨리는 방향으로 새지 않게 한다.
     t = F.normalize(text_embeds.float(), dim=-1)
     sim = t @ t.t()
     B = t.size(0)
     upper = torch.triu(torch.ones(B, B, dtype=torch.bool, device=t.device), diagonal=1)
     eligible = upper & (design_label[:, None] != design_label[None, :]) \
-                     & (text_label[:, None] != text_label[None, :])
+                     & (text_label[:, None] != text_label[None, :]) \
+                     & (head_label[:, None] == head_label[None, :]) \
+                     & (sim < ceiling)
     if not eligible.any():
         zero = t.new_tensor(0.0)
         return (zero, 0, 0) if return_stats else zero
-    hinge = (sim[eligible] - margin).clamp(min=0)
+    hinge = (sim[eligible] - floor).clamp(min=0)
     loss = hinge.mean()
     # 통계는 파이썬 int로 낸다. 위 eligible.any()가 이미 매 스텝 GPU 동기화를
     # 유발하므로(if 조건이라 값이 필요하다) 카운트 두 개를 더 꺼내는 비용은 없다.
     return (loss, int(eligible.sum()), int((hinge > 0).sum())) if return_stats else loss
 
 
-def compose_loss(out, pos, t, design_label, text_label):
+def compose_loss(out, pos, t, design_label, text_label, head_label):
     """총 손실 = CLIP + (img2img) + (TIC). out은 모델 출력 객체 또는 동일 필드를 가진 무엇이든.
 
     학습 루프에서 떼어낸 이유: 게이트가 실제로 켜지는지 모델 없이 검증하기 위해서다.
@@ -120,8 +124,9 @@ def compose_loss(out, pos, t, design_label, text_label):
     if t["img2img_weight"] > 0:
         loss = loss + t["img2img_weight"] * supcon_loss(out.image_embeds, design_label)
     if t.get("tic_weight", 0.0) > 0:
-        tic, n_el, n_vi = tic_loss(out.text_embeds, design_label, text_label,
-                                   margin=t.get("tic_margin", 0.9), return_stats=True)
+        tic, n_el, n_vi = tic_loss(out.text_embeds, design_label, text_label, head_label,
+                                   floor=t.get("tic_floor", 0.75),
+                                   ceiling=t.get("tic_ceiling", 0.92), return_stats=True)
         loss = loss + t["tic_weight"] * tic
         stats.update(tic=float(tic), n_eligible=n_el, n_violating=n_vi)
     return loss, stats
@@ -169,6 +174,7 @@ def evaluate(model, loader, device, max_batches=None):
             break
         d = enc.pop("design_label").to(device)
         enc.pop("text_label", None)                    # 평가에는 쓰지 않는다
+        enc.pop("head_label", None)                    # 평가에는 쓰지 않는다
         pos = _pos_mask(d)                             # 대칭 → 양방향 공용
         enc = {k: v.to(device) for k, v in enc.items()}
         out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
@@ -214,7 +220,8 @@ def main():
         # YAML에서 따옴표가 붙으면(tic_weight: "0.2") 문자열이라 곱셈이 학습 도중
         # TypeError로 터진다. 몇 시간 뒤 첫 스텝이 아니라 지금 죽는 게 낫다.
         t["tic_weight"] = float(t["tic_weight"])
-        t["tic_margin"] = float(t.get("tic_margin", 0.9))
+        t["tic_floor"] = float(t.get("tic_floor", 0.75))
+        t["tic_ceiling"] = float(t.get("tic_ceiling", 0.92))
     set_seed(t["seed"])
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[t["precision"]]
@@ -275,8 +282,8 @@ def main():
     # 도는 사고는 학습 로그만 봐서는 baseline과 구분이 안 된다.
     tic_on = t.get("tic_weight", 0.0) > 0
     if tic_on:
-        print(f"[tic] ON — tic_weight={t['tic_weight']} tic_margin={t['tic_margin']} "
-              f"(margin 위로 붙은 서로 다른 제목 쌍만 밀어냄)")
+        print(f"[tic] ON — tic_weight={t['tic_weight']} "
+              f"floor={t['tic_floor']} ceiling={t['tic_ceiling']}", flush=True)
     eval_batches = args.eval_batches or None
     os.makedirs(t["output_dir"], exist_ok=True)
     print(f"baseline: {evaluate(model, eval_loader, device, eval_batches)}")
@@ -303,6 +310,7 @@ def main():
         for i, enc in enumerate(train_loader):
             design_label = enc.pop("design_label").to(device)
             text_label = enc.pop("text_label").to(device)
+            head_label = enc.pop("head_label").to(device)
             enc = {k: v.to(device) for k, v in enc.items()}
             # 마스킹 비활성 시 대각선만 positive = 표준 CLIP InfoNCE와 동일
             pos = _pos_mask(design_label) if mask_fn \
@@ -311,7 +319,7 @@ def main():
             with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):
                 out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
                             pixel_values=enc["pixel_values"])
-                loss, lstats = compose_loss(out, pos, t, design_label, text_label)
+                loss, lstats = compose_loss(out, pos, t, design_label, text_label, head_label)
                 loss = loss / t["grad_accum"]
 
             loss.backward()
