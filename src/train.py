@@ -256,7 +256,9 @@ def main():
         t["tic_weight"] = float(t["tic_weight"])
         t["tic_floor"] = float(t.get("tic_floor", TIC_FLOOR))
         t["tic_ceiling"] = float(t.get("tic_ceiling", TIC_CEILING))
-    n_chunks = t.get("grad_cache_chunks", 1)
+    # YAML에서 따옴표가 붙으면 문자열이라 n_chunks > 1 비교는 통과해도 나눗셈에서
+    # 조용히 잘못된 값이 나올 수 있다 - tic_weight와 같은 이유로 여기서 형변환한다.
+    n_chunks = int(t.get("grad_cache_chunks", 1))
     if n_chunks > 1 and t["grad_accum"] > 1:
         # GradCache 경로는 grad_accum을 적용하지 않는다 - 조용히 한쪽을 무시하면
         # 유효 배치 크기가 설정과 달라져 config가 거짓말을 하게 된다.
@@ -315,6 +317,14 @@ def main():
         # ceil을 쓰면 total_steps가 실제 옵티마이저 스텝 수보다 커져 코사인
         # 스케줄이 끝까지 내려오지 않는다.
         steps_per_epoch = len(train_loader) // n_chunks
+        if steps_per_epoch == 0:
+            # 배치 수가 n_chunks보다 적으면 그룹이 한 번도 안 채워져 옵티마이저
+            # 스텝이 0회다. evaluate/save_pretrained는 그대로 돌고 종료 코드도
+            # 0이라 "arm이 이름만 그 arm인 채로 완주"하는 조용한 무효화가 된다.
+            print(f"오류: train_loader 배치 수({len(train_loader)})가 "
+                  f"grad_cache_chunks({n_chunks})보다 적어 스텝이 0회가 됩니다. "
+                  f"batch_size를 줄이거나 grad_cache_chunks를 줄이세요.")
+            sys.exit(1)
     else:
         steps_per_epoch = math.ceil(len(train_loader) / t["grad_accum"])
     # max_steps 지정 시 스케줄(워밍업·코사인)도 그 총량 기준 → LR이 제대로 오르내림
