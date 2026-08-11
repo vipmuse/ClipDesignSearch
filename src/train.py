@@ -27,6 +27,13 @@ from hobit import HobitBatchSampler, refresh_embeddings
 from model import build_model
 
 
+# TIC 기본 파라미터. 리터럴이 세 곳(tic_loss 시그니처·compose_loss·main의 형변환)에
+# 흩어져 있으면 어긋나도 조용하다 - compose_loss의 기본값이 손실에 들어가고 main의
+# 기본값이 로그에 찍히므로, 갈라지면 로그가 손실이 쓰지도 않은 floor를 보여준다.
+TIC_FLOOR = 0.75
+TIC_CEILING = 0.92
+
+
 def set_seed(s):
     random.seed(s); np.random.seed(s); torch.manual_seed(s); torch.cuda.manual_seed_all(s)
 
@@ -66,7 +73,7 @@ def supcon_loss(feats, labels, temperature=0.1):
 
 
 def tic_loss(text_embeds, design_label, text_label, head_label,
-             floor=0.75, ceiling=0.92, return_stats=False):
+             floor=TIC_FLOOR, ceiling=TIC_CEILING, return_stats=False):
     """텍스트 모달 내부 대조(TIC). 같은 물품군의 '서로 다른 물품'만 밀어낸다.
 
     선택 규칙은 두 축이다 (2026-08-11 실측으로 확정, 스펙 §3.2):
@@ -74,7 +81,10 @@ def tic_loss(text_embeds, design_label, text_label, head_label,
       이 축이 없으면 'Shoe'/'Bottle'(코사인 0.867)까지 대상이 된다.
     - 코사인 < ceiling: 'Clothing hanger'/'Clothes hanger'(0.996)처럼 같은 물품의
       표기 차이를 뺀다. 이들은 붙어 있어야 맞다.
-    여기에 문자열이 같은 쌍(같은 벡터라 분리 불가)과 같은 design_id 쌍을 더 뺀다.
+    여기에 문자열이 같은 쌍(같은 벡터라 분리 불가)과 같은 design_id 쌍, 그리고
+    헤드명사가 비어 있는 쌍(head_label < 0)을 더 뺀다. 빈 헤드는 물품군의 근거가
+    아니다 - 비-라틴 제목이 들어오면 전부 한 통에 묶여 헤드명사 축이 무효가 되고,
+    TIC이 반증된 1차 설계(배치당 약 496쌍)로 조용히 되돌아간다.
 
     스칼라 임계값 하나로는 안 되는 이유: 베이스 모델 코사인은 물품 유사도 순으로
     정렬되지 않는다. 목표 쌍 Container/Beverage container는 0.786인데 무관한
@@ -98,6 +108,7 @@ def tic_loss(text_embeds, design_label, text_label, head_label,
     eligible = upper & (design_label[:, None] != design_label[None, :]) \
                      & (text_label[:, None] != text_label[None, :]) \
                      & (head_label[:, None] == head_label[None, :]) \
+                     & (head_label[:, None] >= 0) \
                      & (sim < ceiling)
     if not eligible.any():
         zero = t.new_tensor(0.0)
@@ -126,10 +137,11 @@ def compose_loss(out, pos, t, design_label, text_label, head_label):
         loss = loss + t["img2img_weight"] * supcon_loss(out.image_embeds, design_label)
     if t.get("tic_weight", 0.0) > 0:
         tic, n_el, n_vi = tic_loss(out.text_embeds, design_label, text_label, head_label,
-                                   floor=t.get("tic_floor", 0.75),
-                                   ceiling=t.get("tic_ceiling", 0.92), return_stats=True)
+                                   floor=t.get("tic_floor", TIC_FLOOR),
+                                   ceiling=t.get("tic_ceiling", TIC_CEILING), return_stats=True)
         loss = loss + t["tic_weight"] * tic
-        stats.update(tic=float(tic), n_eligible=n_el, n_violating=n_vi)
+        # .detach(): requires_grad 텐서를 float()에 넣으면 로그 스텝마다 UserWarning이 뜬다.
+        stats.update(tic=float(tic.detach()), n_eligible=n_el, n_violating=n_vi)
     return loss, stats
 
 
@@ -229,8 +241,8 @@ def main():
         # YAML에서 따옴표가 붙으면(tic_weight: "0.2") 문자열이라 곱셈이 학습 도중
         # TypeError로 터진다. 몇 시간 뒤 첫 스텝이 아니라 지금 죽는 게 낫다.
         t["tic_weight"] = float(t["tic_weight"])
-        t["tic_floor"] = float(t.get("tic_floor", 0.75))
-        t["tic_ceiling"] = float(t.get("tic_ceiling", 0.92))
+        t["tic_floor"] = float(t.get("tic_floor", TIC_FLOOR))
+        t["tic_ceiling"] = float(t.get("tic_ceiling", TIC_CEILING))
     set_seed(t["seed"])
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[t["precision"]]
@@ -328,7 +340,11 @@ def main():
             with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):
                 out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
                             pixel_values=enc["pixel_values"])
-                loss, lstats = compose_loss(out, pos, t, design_label, text_label, head_label)
+                # 키워드로 넘긴다. text_label과 head_label은 타입도 모양도 같아 자리가
+                # 바뀌어도 아무 데서도 안 터지고, 대신 eligible이 매 배치 공집합이 되어
+                # (제목이 같으면 헤드명사도 같다) tic arm이 이름만 tic인 baseline이 된다.
+                loss, lstats = compose_loss(out, pos, t, design_label=design_label,
+                                            text_label=text_label, head_label=head_label)
                 loss = loss / t["grad_accum"]
 
             loss.backward()
@@ -344,9 +360,10 @@ def main():
                            f"loss={loss.item()*t['grad_accum']:.4f} "
                            f"lr={sched.get_last_lr()[0]:.2e}")
                     if tic_on:
-                        # 총 손실만 찍으면 TIC 항은 보이지 않는다 — 현 설정에서 기여가
-                        # 1e-6 규모라 4째 자리를 못 움직인다. 항의 값과 쌍 수를 따로
-                        # 찍어야 "켜졌는데 효과가 없는지"와 "안 켜졌는지"가 구분된다.
+                        # 총 손실만 봐서는 "켜졌는데 대상이 없는지"와 "아예 안 켜졌는지"가
+                        # 갈라지지 않는다 - 둘 다 총 손실이 baseline과 비슷해 보인다. 항의
+                        # 값과 대상/위반 쌍 수를 따로 찍어야 그 둘이 구분되고, 가중 전 값을
+                        # 찍으므로 총 손실 중 TIC 몫도 로그만으로 다시 계산된다.
                         print(f"{msg} tic={lstats['tic']:.4e} "
                               f"(×{t['tic_weight']}→{t['tic_weight']*lstats['tic']:.4e}) "
                               f"위반/대상={lstats['n_violating']}/{lstats['n_eligible']}")

@@ -88,7 +88,7 @@ def main():
         parts = sorted([f for f in files if f["label"].startswith(f"{yr}.")],
                        key=lambda x: x["label"])
         if not parts:
-            print(f"[{yr}] 해당 연도 파일 없음 — 건너뜀")
+            print(f"[{yr}] 해당 연도 파일 없음 - 건너뜀")
             continue
         total = human(sum(p["size"] for p in parts))
         print(f"[{yr}] {len(parts)} parts, {total} 다운로드")

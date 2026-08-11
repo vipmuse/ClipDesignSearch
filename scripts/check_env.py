@@ -23,7 +23,7 @@ def main():
         except Exception as e:
             print("bf16 matmul smoke test: FAIL ->", e)
     else:
-        print("!! CUDA를 못 씀 — CPU 빌드이거나 드라이버/CUDA 불일치")
+        print("!! CUDA를 못 씀 - CPU 빌드이거나 드라이버/CUDA 불일치")
 
     print("\n=== libs ===")
     for m in ["transformers", "peft", "faiss", "accelerate"]:

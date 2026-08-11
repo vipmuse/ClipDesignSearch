@@ -1,5 +1,5 @@
 name: tic
-description: "텍스트 모달 내부 대조 — 가까이 붙은 서로 다른 제목을 밀어낸다 (baseline + 손실 축만 변경)"
+description: "텍스트 모달 내부 대조 - 같은 헤드명사이면서 코사인이 상한(0.92) 아래인 서로 다른 제목 쌍만 floor(0.75) 위로 밀어낸다 (baseline + 손실 축만 변경)"
 extends: configs/lora_clip.yaml
 data: {builder: shared, pairs: data/pairs.jsonl}
 train:

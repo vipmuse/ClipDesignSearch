@@ -236,12 +236,12 @@ def embed_records(records, image_root, size, encode_fn, batch_size=64, num_worke
         print(f"[hobit] 이미지 {failed}/{n}장을 열지 못해 0 벡터로 남겼다", flush=True)
     if out is None:
         raise RuntimeError(
-            f"레코드 {n}개 중 임베딩에 성공한 이미지가 하나도 없다 — "
+            f"레코드 {n}개 중 임베딩에 성공한 이미지가 하나도 없다 - "
             f"image_root({image_root})와 pairs.jsonl의 상대경로를 확인할 것")
     if failed / n > max_fail_ratio:
         raise RuntimeError(
             f"임베딩 실패 {failed}/{n}장({failed / n:.1%})이 허용치 {max_fail_ratio:.1%}를 "
-            f"넘는다 — image_root({image_root}) 오지정일 가능성이 높다. "
+            f"넘는다 - image_root({image_root}) 오지정일 가능성이 높다. "
             f"실패 행은 0 벡터라 greedy가 그 레코드들을 에폭 끝으로 밀어낸다")
     return out
 

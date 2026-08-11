@@ -123,7 +123,7 @@ def train_arm(name, args):
         diffs = diff_keys(stored, cfg)
         if diffs:
             print(f"!! [{name}] 저장된 config.resolved.yaml과 현재 메서드 YAML이 다릅니다 "
-                  f"— 저장본을 그대로 쓰고 진행합니다 (어댑터는 저장본 설정으로 학습됨).")
+                  f"- 저장본을 그대로 쓰고 진행합니다 (어댑터는 저장본 설정으로 학습됨).")
             for key, was, now in diffs:
                 print(f"!!   {key}: 저장본={was!r} 현재={now!r}")
             print(f"!! [{name}] 새 설정으로 학습·평가·인덱스를 다시 만들려면 --force 로 재실행하세요.")
@@ -228,6 +228,13 @@ def report(arm_names):
 
 
 def main():
+    # 자식 로그는 run()이 걸러주지만 러너 자신의 print는 날 콘솔을 그대로 만난다.
+    # 여기서 죽으면 앞선 arm들의 학습 시간까지 통째로 날아간다 (train.py와 같은 방어선).
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except (AttributeError, ValueError):        # 파이프로 리다이렉트된 경우 등
+        pass
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--arms", nargs="+", default=DEFAULT_ARMS,
                     help=f"실험군 선택 (기본: {' '.join(DEFAULT_ARMS)})")

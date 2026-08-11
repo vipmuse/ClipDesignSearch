@@ -10,6 +10,7 @@ import types
 
 import pytest
 import torch
+import torch.nn.functional as F
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from train import compose_loss, masked_clip_loss, tic_loss  # noqa: E402
@@ -22,10 +23,14 @@ def _emb(vectors):
 
 
 def test_제목이_같으면_밀어내지_않는다():
-    """같은 문자열 → 같은 임베딩. 분리가 불가능하므로 손실 0이어야 한다."""
+    """같은 문자열 → 같은 임베딩. 분리가 불가능하므로 손실 0이어야 한다.
+
+    ceiling을 1.1로 올린다: 같은 벡터의 코사인 1.0은 기본 상한(0.92) 위라, 상한만으로
+    이미 배제돼 text_label 절을 통째로 지워도 이 검사가 통과했다. 1.1이면 제목 동일성이
+    유일한 배제 사유가 된다."""
     e = _emb([[1.0, 0.0], [1.0, 0.0]])
     assert tic_loss(e, torch.tensor([0, 1]), torch.tensor([0, 0]), torch.tensor([0, 0]),
-                    floor=0.5).item() == 0.0
+                    floor=0.5, ceiling=1.1).item() == 0.0
 
 
 def test_같은_design_id면_밀어내지_않는다():
@@ -68,6 +73,17 @@ def test_헤드명사가_다르면_밀어내지_않는다():
                     floor=0.5).item() == 0.0
 
 
+def test_헤드명사가_비면_대상이_아니다():
+    """헤드명사를 못 뽑은 제목(비-라틴 등)은 head_label이 -1이다. -1끼리 같다고 묶으면
+    '같은 물품군'이라는 근거 없이 전부 대상이 되어, 반증된 1차 설계(배치당 약 496쌍)로
+    조용히 되돌아간다."""
+    e = _emb([[1.0, 0.0], [0.8, 0.6]])               # 유사도 0.8 (floor<sim<ceiling)
+    d, tl = torch.tensor([0, 1]), torch.tensor([0, 1])
+    assert tic_loss(e, d, tl, torch.tensor([-1, -1]), floor=0.5).item() == 0.0
+    # 같은 배치를 실제 헤드명사로 주면 대상이 된다 - 위 0이 다른 이유로 난 게 아님을 못박는다
+    assert tic_loss(e, d, tl, torch.tensor([0, 0]), floor=0.5).item() > 0.0
+
+
 def test_상한_이상이면_표기_차이로_보고_제외한다():
     """'Clothing hanger'/'Clothes hanger' 0.996 같은 쌍. 같은 물품이라 붙어 있어야 한다."""
     e = _emb([[1.0, 0.0], [1.0, 0.02]])              # 유사도 ≈ 0.9998
@@ -84,11 +100,17 @@ def test_같은_물품군이고_상한_아래면_밀어낸다():
     assert out.item() > 0.0
 
 
-def test_상한_경계_바로_아래는_대상이고_바로_위는_아니다():
-    e = _emb([[1.0, 0.0], [0.9, 0.4359]])            # 유사도 ≈ 0.900
+def test_상한_경계는_미만이라_같은_값은_제외된다():
+    """`sim < ceiling`의 부등호를 경계에서 못박는다.
+
+    옛 검사는 유사도 0.900을 상한 0.95/0.85와 비교해 경계에서 한참 떨어져 있었다 -
+    `<`를 `<=`로 바꿔도 전부 통과했다. 상한을 그 배치의 유사도와 정확히 같게 줘서
+    "같은 값은 제외"를 직접 확인한다."""
+    e = _emb([[1.0, 0.0], [0.9, 0.4359]])
+    sim = (F.normalize(e.float(), dim=-1) @ F.normalize(e.float(), dim=-1).t())[0, 1].item()
     d, tl, hl = torch.tensor([0, 1]), torch.tensor([0, 1]), torch.tensor([0, 0])
-    assert tic_loss(e, d, tl, hl, floor=0.5, ceiling=0.95).item() > 0.0
-    assert tic_loss(e, d, tl, hl, floor=0.5, ceiling=0.85).item() == 0.0
+    assert tic_loss(e, d, tl, hl, floor=0.5, ceiling=sim).item() == 0.0
+    assert tic_loss(e, d, tl, hl, floor=0.5, ceiling=sim + 1e-6).item() > 0.0
 
 
 def test_stats의_대상_쌍_수는_상한_적용_후_기준이다():
@@ -234,6 +256,23 @@ def test_tic_기여가_tic_weight에_선형이다():
     assert hi == pytest.approx(2 * lo, rel=1e-5)
 
 
+def test_ceiling이_커지면_대상_쌍이_늘어난다():
+    """tic_ceiling이 compose_loss를 지나 tic_loss까지 실제로 도달하는지 못박는다.
+
+    floor 쪽에는 같은 검사가 있었지만 ceiling에는 없어서, `ceiling=t.get(...)`을
+    상수 0.92로 바꿔도 전 스위트가 초록이었다. 스펙이 스윕 1순위로 지목한 손잡이라
+    그 상태면 상한 스윕이 전부 같은 arm을 만들고 Δ≈0인 표만 남긴다.
+
+    배치 유사도는 0.8 / 0.6 / 0.0 - 상한 0.9면 셋 다, 0.7이면 둘만 대상이 된다.
+    """
+    out, pos, design, text, head = _violating_batch()
+    base = {"img2img_weight": 0.0, "tic_weight": 0.2, "tic_floor": 0.5}
+    wide = compose_loss(out, pos, dict(base, tic_ceiling=0.9), design, text, head)[1]
+    narrow = compose_loss(out, pos, dict(base, tic_ceiling=0.7), design, text, head)[1]
+    assert (wide["n_eligible"], narrow["n_eligible"]) == (3, 2)
+    assert wide["tic"] > narrow["tic"] > 0
+
+
 def test_floor가_커지면_TIC_기여가_줄어든다():
     """tic_floor 오타가 기본값(0.75)으로 조용히 떨어지는 사고를, 값이 실제로
     손실에 반영되는지 못박아 감지 가능하게 만든다."""
@@ -242,3 +281,70 @@ def test_floor가_커지면_TIC_기여가_줄어든다():
     tight = compose_loss(out, pos, dict(base, tic_floor=0.5), design, text, head)[1]["tic"]
     loose = compose_loss(out, pos, dict(base, tic_floor=0.99), design, text, head)[1]["tic"]
     assert tight > loose
+
+
+# ── Collator → compose_loss 배선 (모델 없이) ──
+# 학습 루프의 호출 한 줄이 text_label과 head_label을 서로 바꿔 넘기면 아무 데서도
+# 안 터진다 — 두 인자는 타입도 모양도 같다. 대신 eligible이 매 배치 공집합이 되어
+# (제목이 같으면 헤드명사도 같으므로 head≠head ∧ text==text는 불가능) TIC이 영원히
+# 0을 돌려주고 tic arm은 이름만 tic인 baseline이 된다. 로그의 위반/대상=0/0은
+# 정상 배치에서도 10.3% 나오므로 신호가 되지 못한다.
+
+class _FakeProcessor:
+    """토크나이저/모델 로드 없이 개수만 맞춰주는 대역 (tests/test_text_label.py와 동일 수법)."""
+
+    def __call__(self, text=None, images=None, return_tensors=None, **kw):
+        n = len(text)
+        return {"input_ids": torch.zeros(n, 4, dtype=torch.long),
+                "attention_mask": torch.ones(n, 4, dtype=torch.long),
+                "pixel_values": torch.zeros(n, 3, 8, 8)}
+
+
+def _real_labels(tmp_path):
+    """실제 Collator가 만든 (design_label, text_label, head_label).
+
+    제목 셋: 'Pizza box'/'Storage box'는 같은 물품군(box), 'Shoe'는 다른 물품군.
+    """
+    from PIL import Image as _Image
+
+    from dataset import Collator
+    for i in range(3):
+        _Image.new("RGB", (8, 8), (255, 255, 255)).save(tmp_path / f"{i}.png")
+    recs = [{"image": f"{i}.png", "text": t, "design_id": d}
+            for i, (t, d) in enumerate(zip(["Pizza box", "Storage box", "Shoe"], "ABC"))]
+    enc = Collator(_FakeProcessor(), 8, str(tmp_path))(recs)
+    return enc.pop("design_label"), enc.pop("text_label"), enc.pop("head_label")
+
+
+def test_Collator가_만든_라벨로도_TIC이_발화한다(tmp_path):
+    """손으로 만든 라벨이 아니라 실제 Collator 출력으로 게이트를 통과시킨다."""
+    design, text, head = _real_labels(tmp_path)
+    assert (design.tolist(), text.tolist(), head.tolist()) == ([0, 1, 2], [0, 1, 2], [0, 0, 1])
+
+    e = _emb([[1.0, 0.0], [0.8, 0.6], [0.0, 1.0]])   # (0,1)=0.8 (0,2)=0.0 (1,2)=0.6
+    t = {"img2img_weight": 0.0, "tic_weight": 0.2, "tic_floor": 0.5}
+    _, stats = compose_loss(_out(e), torch.eye(3, dtype=torch.bool), t,
+                            design_label=design, text_label=text, head_label=head)
+    # 같은 물품군인 (0,1)만 대상 - 'Shoe'가 낀 쌍은 헤드명사가 달라 빠진다
+    assert (stats["n_eligible"], stats["n_violating"]) == (1, 1)
+    assert stats["tic"] == pytest.approx(0.3, abs=1e-6)
+
+
+def test_text_label과_head_label을_바꿔_넘기면_TIC이_죽는다(tmp_path):
+    """배선이 뒤집혔을 때 무엇이 일어나는지를 못박는다 - 조용한 0이지 예외가 아니다."""
+    design, text, head = _real_labels(tmp_path)
+    e = _emb([[1.0, 0.0], [0.8, 0.6], [0.0, 1.0]])
+    t = {"img2img_weight": 0.0, "tic_weight": 0.2, "tic_floor": 0.5}
+    _, stats = compose_loss(_out(e), torch.eye(3, dtype=torch.bool), t,
+                            design_label=design, text_label=head, head_label=text)
+    assert (stats["n_eligible"], stats["tic"]) == (0, 0.0)
+
+
+def test_학습_루프는_compose_loss를_키워드로_호출한다():
+    """위 두 검사가 지키는 배선을, 실제 호출부가 위치 인자로 되돌아가지 못하게 고정한다."""
+    import inspect
+
+    import train
+    src = inspect.getsource(train.main)
+    assert "text_label=text_label" in src and "head_label=head_label" in src, \
+        "train 루프가 compose_loss를 위치 인자로 부르고 있다 (라벨 순서 사고의 입구)"

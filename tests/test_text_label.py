@@ -107,8 +107,13 @@ def test_헤드명사도_원문_기준이다(tmp_path):
         assert hl[0] == hl[1], "증강된 텍스트로 헤드명사를 뽑고 있다"
 
 
-def test_알파벳이_없는_제목은_빈_헤드로_묶인다(tmp_path):
-    for i in range(2):
+def test_헤드명사를_못_뽑으면_센티넬_마이너스1을_받는다(tmp_path):
+    """빈 헤드를 하나의 정수로 묶으면 그것들끼리 '같은 물품군'이 되어 TIC이 밀어낸다.
+    dataset 모듈 도크스트링의 표준 레코드 예시가 한국어라 언제든 실현될 수 있는 경로다.
+    -1로 몰아 tic_loss가 통째로 걸러내게 한다 (tests/test_tic.py 쪽에서 검증)."""
+    for i in range(3):
         Image.new("RGB", (8, 8), (255, 255, 255)).save(tmp_path / f"{i}.png")
-    hl = _collate(_records(["123", "456"], ["A", "B"]), str(tmp_path))["head_label"].tolist()
-    assert hl[0] == hl[1]
+    recs = _records(["123", "무선 이어폰 케이스", "Pizza box"], ["A", "B", "C"])
+    hl = _collate(recs, str(tmp_path))["head_label"].tolist()
+    assert hl[:2] == [-1, -1], "헤드명사가 없는 제목이 실제 물품군 라벨을 받았다"
+    assert hl[2] >= 0

@@ -186,6 +186,7 @@ class Collator:
     (masked InfoNCE, supcon)용 정수 라벨.
     text_label: 같은 원문 제목 → 같은 정수. TIC 필터 전용 (positive 판정에 쓰지 않음).
     head_label: 같은 헤드명사(제목 마지막 단어) → 같은 정수. TIC 필터 전용.
+      헤드명사가 비면 -1 (물품군 미상) — TIC이 대상에서 통째로 뺀다.
     """
     processor: object
     image_size: int
@@ -225,9 +226,13 @@ class Collator:
         # 같은 헤드명사 → 같은 정수. text_label과 같이 TIC 필터 전용이며,
         # 증강 전 원문(raw_texts)으로 계산한다 — 증강은 뒤에 viewpoint를 붙여
         # 마지막 단어를 바꿔버린다.
+        # 빈 헤드는 -1로 몰아 TIC이 통째로 거른다. 하나의 정수로 묶으면 헤드명사가
+        # 안 뽑히는 제목(예: CJK)끼리 전부 '같은 물품군'이 되어, 이 축이 무효가 되고
+        # TIC이 반증된 1차 설계로 되돌아간다 (dataset 도크스트링의 한국어 예시 참고).
         uniq_h = {}
+        heads = [head_noun(t) for t in raw_texts]
         enc["head_label"] = torch.tensor(
-            [uniq_h.setdefault(head_noun(t), len(uniq_h)) for t in raw_texts],
+            [uniq_h.setdefault(h, len(uniq_h)) if h else -1 for h in heads],
             dtype=torch.long)
         return enc
 
