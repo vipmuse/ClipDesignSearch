@@ -70,3 +70,41 @@ def test_pos_mask는_text_label을_받지_않는다():
 
     from train import _pos_mask
     assert list(inspect.signature(_pos_mask).parameters) == ["design_label"]
+
+
+def test_같은_헤드명사면_같은_라벨(tmp_path):
+    """헤드명사 = 제목의 마지막 알파벳 단어. TIC이 '같은 물품군'을 좁히는 축이다."""
+    for i in range(4):
+        Image.new("RGB", (8, 8), (255, 255, 255)).save(tmp_path / f"{i}.png")
+    recs = _records(["Pizza box", "Storage box", "Wine carrier", "Shoe"],
+                    ["A", "B", "C", "D"])
+    hl = _collate(recs, str(tmp_path))["head_label"].tolist()
+    assert hl[0] == hl[1], "box끼리 같은 라벨이어야 한다"
+    assert hl[0] != hl[2] and hl[0] != hl[3]
+
+
+def test_헤드명사는_대소문자와_구두점을_무시한다(tmp_path):
+    for i in range(3):
+        Image.new("RGB", (8, 8), (255, 255, 255)).save(tmp_path / f"{i}.png")
+    recs = _records(["Storage Box", "pizza box.", "Wall panel"], ["A", "B", "C"])
+    hl = _collate(recs, str(tmp_path))["head_label"].tolist()
+    assert hl[0] == hl[1]
+    assert hl[0] != hl[2]
+
+
+def test_헤드명사도_원문_기준이다(tmp_path):
+    """증강이 viewpoint를 뒤에 붙이면 마지막 단어가 바뀐다 — 원문으로 계산해야 한다."""
+    for i in range(2):
+        Image.new("RGB", (8, 8), (255, 255, 255)).save(tmp_path / f"{i}.png")
+    recs = _records(["Pizza box", "Storage box"], ["A", "B"],
+                    viewpoints=["front view", "side view"])
+    for _ in range(30):
+        hl = _collate(recs, str(tmp_path), augment=True)["head_label"].tolist()
+        assert hl[0] == hl[1], "증강된 텍스트로 헤드명사를 뽑고 있다"
+
+
+def test_알파벳이_없는_제목은_빈_헤드로_묶인다(tmp_path):
+    for i in range(2):
+        Image.new("RGB", (8, 8), (255, 255, 255)).save(tmp_path / f"{i}.png")
+    hl = _collate(_records(["123", "456"], ["A", "B"]), str(tmp_path))["head_label"].tolist()
+    assert hl[0] == hl[1]

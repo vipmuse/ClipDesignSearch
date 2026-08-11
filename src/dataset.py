@@ -7,6 +7,7 @@ import json
 import math
 import os
 import random
+import re
 from dataclasses import dataclass
 
 import torch
@@ -37,6 +38,16 @@ def take_limit(records, limit, seed):
     idx = list(range(len(records)))
     random.Random(seed).shuffle(idx)
     return [records[i] for i in sorted(idx[:limit])]
+
+
+def head_noun(text):
+    """제목의 헤드명사 = 마지막 알파벳 단어(소문자). 없으면 빈 문자열.
+
+    'Pizza box'와 'Storage box'를 같은 물품군으로 묶는 축. TIC이 이 축으로 후보를
+    좁힌 뒤 코사인 상한으로 표기 차이('Clothing hanger'/'Clothes hanger')를 뺀다.
+    """
+    w = re.findall(r"[a-z]+", text.lower())
+    return w[-1] if w else ""
 
 
 def split_by_design(records, eval_ratio, seed):
@@ -174,6 +185,7 @@ class Collator:
     design_label: 같은 design_id를 positive로 묶는 멀티-positive loss
     (masked InfoNCE, supcon)용 정수 라벨.
     text_label: 같은 원문 제목 → 같은 정수. TIC 필터 전용 (positive 판정에 쓰지 않음).
+    head_label: 같은 헤드명사(제목 마지막 단어) → 같은 정수. TIC 필터 전용.
     """
     processor: object
     image_size: int
@@ -210,6 +222,13 @@ class Collator:
         uniq_t = {}
         enc["text_label"] = torch.tensor(
             [uniq_t.setdefault(t, len(uniq_t)) for t in raw_texts], dtype=torch.long)
+        # 같은 헤드명사 → 같은 정수. text_label과 같이 TIC 필터 전용이며,
+        # 증강 전 원문(raw_texts)으로 계산한다 — 증강은 뒤에 viewpoint를 붙여
+        # 마지막 단어를 바꿔버린다.
+        uniq_h = {}
+        enc["head_label"] = torch.tensor(
+            [uniq_h.setdefault(head_noun(t), len(uniq_h)) for t in raw_texts],
+            dtype=torch.long)
         return enc
 
 
