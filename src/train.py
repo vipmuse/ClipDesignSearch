@@ -256,8 +256,9 @@ def main():
         t["tic_weight"] = float(t["tic_weight"])
         t["tic_floor"] = float(t.get("tic_floor", TIC_FLOOR))
         t["tic_ceiling"] = float(t.get("tic_ceiling", TIC_CEILING))
-    # YAML에서 따옴표가 붙으면 문자열이라 n_chunks > 1 비교는 통과해도 나눗셈에서
-    # 조용히 잘못된 값이 나올 수 있다 - tic_weight와 같은 이유로 여기서 형변환한다.
+    # YAML에서 따옴표가 붙으면 문자열이 들어온다. 형변환이 없으면 아래 비교가
+    # TypeError로 죽고 원인이 설정에 있다는 게 드러나지 않는다 - tic_weight와 같은
+    # 이유로 여기서 int로 고정한다.
     n_chunks = int(t.get("grad_cache_chunks", 1))
     if n_chunks > 1 and t["grad_accum"] > 1:
         # GradCache 경로는 grad_accum을 적용하지 않는다 - 조용히 한쪽을 무시하면
