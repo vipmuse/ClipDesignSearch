@@ -158,3 +158,28 @@ def test_tic과_hobit은_서로_다른_축을_바꾼다():
     hobit = registry.resolve("hobit")["train"]
     assert tic.get("sampler", "pk") != "hobit", "tic이 배치 구성까지 바꾸고 있다"
     assert hobit.get("tic_weight", 0.0) == 0.0, "hobit이 손실까지 바꾸고 있다"
+
+
+def test_loracap은_baseline과_lora_블록만_다르다():
+    """loracap이 바꾸는 축은 파라미터 용량 하나여야 Δ가 그 기여로 읽힌다."""
+    c = registry.resolve("loracap")
+    b = registry.resolve("baseline")
+    five = ("pk_views", "locarno_aware", "mask_false_negatives", "augment", "img2img_weight")
+    assert [c["train"][k] for k in five] == [b["train"][k] for k in five]
+    assert c["model"] == b["model"], "loracap은 모델을 바꾸지 않는다 (해상도 축은 hires378의 몫)"
+
+
+def test_loracap의_lora_블록이_베이스보다_크다():
+    """세 가지가 모두 켜져야 '용량 확장'이다 - 하나라도 빠지면 다른 arm과 구분되지 않는다."""
+    c = registry.resolve("loracap")["lora"]
+    b = registry.resolve("baseline")["lora"]
+    assert c["r"] > b["r"] and c["alpha"] > b["alpha"]
+    assert set(c["target_modules"]) > set(b["target_modules"]), "fc1/fc2가 추가되지 않았다"
+    assert c["train_projections"] is True and b["train_projections"] is False
+
+
+def test_loracap은_손실과_배치_구성_축을_건드리지_않는다():
+    """tic(손실 축)·hobit(배치 구성 축)과 겹치면 기여도가 섞인다."""
+    c = registry.resolve("loracap")["train"]
+    assert c.get("tic_weight", 0.0) == 0.0
+    assert c.get("sampler", "random") != "hobit"

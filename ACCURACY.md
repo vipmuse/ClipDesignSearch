@@ -176,6 +176,7 @@ outputs/methods/<name>/
 | (선택) `tic` | baseline + 텍스트 모달 내부 대조(헤드명사+상한 선택) | ③ 같은 물품군의 다른 물품이 텍스트 공간에서 구분되지 않음 |
 | (선택) `pk-only` | PK만, 마스킹 없이 | 유해 상호작용 실증 |
 | (선택) `all-mlp` / `all-proj` / `all-r32` | all + LoRA 확장 | ⑫ 계열, 최종 레시피 위 추가 기여 |
+| (선택) `loracap` | baseline + LoRA 용량 확장(rank 32, fc1/fc2, projection) | ⑫ 저비용 용량 확장 |
 
 `(선택)` 표시가 없는 행(`base`~`all`)만 `run_ablation.py`를 인자 없이 돌렸을 때 학습된다
 (= `DEFAULT_ARMS` + 항상 앞에 붙는 `base`). `(선택)` 행은 `--arms`로 이름을 적어야 돈다 —
@@ -189,6 +190,7 @@ python scripts\run_ablation.py --arms baseline all all-r32 --epochs 3   # arm �
 python scripts\run_ablation.py --epochs 3 --no-index   # 인덱스 빌드 생략 (평가만 볼 때)
 python scripts\run_ablation.py --arms baseline hobit --epochs 3   # 배치 구성 단독 기여
 python scripts\run_ablation.py --arms baseline tic --epochs 3   # 손실 축 단독 기여
+python scripts\run_ablation.py --arms baseline loracap --epochs 3   # 파라미터 용량 축 단독 기여
 ```
 
 - `hobit` arm은 다른 arm보다 비싸다: 에폭마다 학습 분할 전체(425,140장)를 1회 추론해
