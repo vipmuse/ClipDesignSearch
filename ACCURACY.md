@@ -173,7 +173,7 @@ outputs/methods/<name>/
 | `pkmask-i2i` | +PK+마스킹+supcon | ①+③+img2img loss |
 | `all` | 전부 ON | 최종 레시피 |
 | (선택) `hobit` | baseline + submodular greedy 배치 구성 | ① 배치 구성의 원리적 대체 (ICML 2026) |
-| (선택) `tic` | baseline + 텍스트 모달 내부 대조 | ③ 제목 중복(27,412/28,859)이 이 데이터의 핵심 난점 |
+| (선택) `tic` | baseline + 텍스트 모달 내부 대조(헤드명사+상한 선택) | ③ 같은 물품군의 다른 물품이 텍스트 공간에서 구분되지 않음 |
 | (선택) `pk-only` | PK만, 마스킹 없이 | 유해 상호작용 실증 |
 | (선택) `all-mlp` / `all-proj` / `all-r32` | all + LoRA 확장 | ⑫ 계열, 최종 레시피 위 추가 기여 |
 

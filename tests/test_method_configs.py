@@ -123,9 +123,9 @@ def test_tic은_baseline과_손실_항만_다르다():
 def test_tic_하이퍼파라미터가_유효_범위_안이다(name):
     """registry.resolve()는 최상위 키 오타만 막는다 — train: 안쪽은 검증하지 않는다.
 
-    그래서 `tic_margn: 0.7`은 조용히 통과하고 학습은 기본값 0.9로 돈다. 다음 단계가
-    margin 스윕인데, 한 글자 차이로 두 arm이 똑같이 학습되면 summary.md에는 서로 다른
-    margin이 같은 수치와 함께 찍힌다 — 표만 봐서는 절대 드러나지 않는 사고다.
+    그래서 `tic_flor: 0.7`은 조용히 통과하고 학습은 기본값 floor=0.75로 돈다. 한 글자
+    오타로 두 arm이 똑같이 학습되면 summary.md에는 서로 다른 floor/ceiling이 같은
+    수치와 함께 찍힌다 — 표만 봐서는 절대 드러나지 않는 사고다.
     tic_weight ≤ 0도 같은 모양이다(게이트가 통째로 꺼져 이름만 tic인 baseline).
     """
     t = registry.resolve(name)["train"]
@@ -134,20 +134,22 @@ def test_tic_하이퍼파라미터가_유효_범위_안이다(name):
     assert isinstance(t["tic_weight"], (int, float)) and not isinstance(t["tic_weight"], bool), \
         f"{name}: tic_weight가 숫자가 아니다({t['tic_weight']!r}) — YAML 따옴표 확인"
     assert t["tic_weight"] > 0, f"{name}: tic_weight={t['tic_weight']} → 게이트가 꺼진 채 학습된다"
-    # tic_margin은 명시 필수. 없으면 오타(tic_margn 등)로 흘렸다는 뜻이고,
+    # tic_floor/tic_ceiling은 명시 필수. 없으면 오타로 흘렸다는 뜻이고,
     # 학습은 조용히 기본값으로 돈다.
-    assert "tic_margin" in t, f"{name}: tic_weight만 있고 tic_margin이 없다 — 키 오타 확인"
-    assert 0 < t["tic_margin"] < 1, \
-        f"{name}: tic_margin={t['tic_margin']} — 코사인 유사도 임계라 (0,1) 밖은 무의미하다"
+    assert "tic_floor" in t, "tic_floor 누락 — 키 오타면 기본값으로 조용히 넘어간다"
+    assert "tic_ceiling" in t, "tic_ceiling 누락"
+    assert 0 < t["tic_floor"] < t["tic_ceiling"] < 1, \
+        f"floor < ceiling < 1 이어야 한다: floor={t['tic_floor']} ceiling={t['tic_ceiling']}"
 
 
 @pytest.mark.parametrize("name", METHODS)
 def test_알_수_없는_tic_키가_없다(name):
-    """`tic_margn: 0.7` 같은 오타를 이름 그대로 잡는다. resolve()가 최상위 키에 하는
+    """`tic_flor: 0.7` 같은 오타를 이름 그대로 잡는다. resolve()가 최상위 키에 하는
     일을 tic_* 접두어에 한정해 train: 안쪽에서도 한다."""
     t = registry.resolve(name)["train"]
-    unknown = sorted(k for k in t if k.startswith("tic_") and k not in ("tic_weight", "tic_margin"))
-    assert not unknown, f"{name}: 알 수 없는 TIC 키 {unknown} (허용: tic_weight, tic_margin)"
+    unknown = sorted(k for k in t if k.startswith("tic_")
+                      and k not in ("tic_weight", "tic_floor", "tic_ceiling"))
+    assert not unknown, f"{name}: 알 수 없는 TIC 키 {unknown} (허용: tic_weight, tic_floor, tic_ceiling)"
 
 
 def test_tic과_hobit은_서로_다른_축을_바꾼다():
