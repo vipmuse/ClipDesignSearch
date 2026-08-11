@@ -93,11 +93,15 @@ def test_헤드명사는_대소문자와_구두점을_무시한다(tmp_path):
 
 
 def test_헤드명사도_원문_기준이다(tmp_path):
-    """증강이 viewpoint를 뒤에 붙이면 마지막 단어가 바뀐다 — 원문으로 계산해야 한다."""
+    """증강이 viewpoint를 뒤에 붙이면 마지막 단어가 바뀐다 — 원문으로 계산해야 한다.
+
+    두 viewpoint의 마지막 단어를 다르게 준다: 둘 다 'view'로 끝나면 양쪽이 함께
+    증강됐을 때 헤드명사가 우연히 같아져(둘 다 'view') 버그가 있어도 통과한다.
+    """
     for i in range(2):
         Image.new("RGB", (8, 8), (255, 255, 255)).save(tmp_path / f"{i}.png")
     recs = _records(["Pizza box", "Storage box"], ["A", "B"],
-                    viewpoints=["front view", "side view"])
+                    viewpoints=["front view", "top perspective"])
     for _ in range(30):
         hl = _collate(recs, str(tmp_path), augment=True)["head_label"].tolist()
         assert hl[0] == hl[1], "증강된 텍스트로 헤드명사를 뽑고 있다"
