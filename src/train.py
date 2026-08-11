@@ -14,6 +14,7 @@ import argparse
 import math
 import os
 import random
+import sys
 
 import numpy as np
 import torch
@@ -190,6 +191,14 @@ def evaluate(model, loader, device, max_batches=None):
 
 
 def main():
+    # 콘솔 코드페이지가 못 그리는 문자 하나가 학습 전체를 죽이지 않게 한다.
+    # 러너(run_ablation.py)는 이미 같은 보호가 있지만 train.py를 직접 돌리면
+    # 날 콘솔을 만난다 — 그 경로가 비어 있었다.
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except (AttributeError, ValueError):        # 파이프로 리다이렉트된 경우 등
+        pass
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/lora_clip.yaml")
     ap.add_argument("--image-root", default="data")
@@ -282,7 +291,7 @@ def main():
     # 도는 사고는 학습 로그만 봐서는 baseline과 구분이 안 된다.
     tic_on = t.get("tic_weight", 0.0) > 0
     if tic_on:
-        print(f"[tic] ON — tic_weight={t['tic_weight']} "
+        print(f"[tic] ON - tic_weight={t['tic_weight']} "
               f"floor={t['tic_floor']} ceiling={t['tic_ceiling']}", flush=True)
     eval_batches = args.eval_batches or None
     os.makedirs(t["output_dir"], exist_ok=True)
