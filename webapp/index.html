@@ -142,7 +142,7 @@
   .cmp-list.open{display:flex}
   .cmp-chip{background:var(--panel2);border:1px solid var(--line);border-radius:20px;
     padding:4px 11px;font-size:12px;cursor:pointer;color:var(--muted)}
-  .cmp-chip.sel{background:rgba(108,140,255,.16);border-color:var(--accent);color:#fff}
+  .cmp-chip.sel{font-weight:700}
   /* 합집합 그리드 (스펙 4.5): 한 그리드 + 방법 배지. 배지 클릭 = 그 방법 top-N 필터 */
   .badgebar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
   .badgebar .bb-lbl{font-size:12px;color:var(--muted)}
@@ -273,6 +273,9 @@ window.addEventListener("paste",e=>{const it=[...e.clipboardData.files][0];if(it
 const predicted=$("#predicted"), predChips=$("#predChips"), textq=$("#textq"), textBtn=$("#textBtn");
 
 // ── 학습 방법 선택/비교 ──
+const ARM_COLORS = {loracap:"#3ddc97", hires378:"#8a6cff", baseline:"#9aa3b2",
+                    hobit:"#ffb020", tic:"#ff6c9d", bigbatch:"#4cc3ff", base:"#7c8a85"};
+const armColor = n => ARM_COLORS[n] || "#6c8cff";
 const methodSel=$("#methodSel"), methodDesc=$("#methodDesc"),
       cmpToggle=$("#cmpToggle"), cmpList=$("#cmpList");
 let METHODS_INFO=[], cmpMode=false, cmpSel=new Set();
@@ -287,12 +290,13 @@ async function loadMethods(){
       `<span class="cmp-chip" data-m="${m.name}">${m.name}</span>`).join("");
     cmpList.querySelectorAll(".cmp-chip").forEach(c=>c.addEventListener("click",()=>{
       const n=c.dataset.m;
-      if(cmpSel.has(n)){cmpSel.delete(n);c.classList.remove("sel");}
-      else if(cmpSel.size<3){cmpSel.add(n);c.classList.add("sel");}
+      if(cmpSel.has(n)) cmpSel.delete(n); else cmpSel.add(n);
+      paintChips();
       rerun();
     }));
-    // 기본 비교조합: 상위 2개
-    d.methods.slice(0,2).forEach(m=>cmpSel.add(m.name));
+    // 기본 비교조합: 전체 방법 (배지 색과 동일한 팔레트로 칠한다)
+    d.methods.forEach(m=>cmpSel.add(m.name));
+    paintChips();
     updateDesc();
   }catch(e){ methodDesc.textContent="방법 목록을 불러오지 못했습니다"; }
 }
@@ -301,11 +305,21 @@ function updateDesc(){
   methodDesc.textContent=m?m.desc:"";
 }
 methodSel.addEventListener("change",()=>{updateDesc();rerun();});
+function paintChips(){
+  cmpList.querySelectorAll(".cmp-chip").forEach(c=>{
+    const n=c.dataset.m, col=armColor(n), sel=cmpSel.has(n);
+    c.classList.toggle("sel",sel);
+    // 배지와 같은 색: 선택 = 채움, 해제 = 외곽선만
+    c.style.background=sel?col:"transparent";
+    c.style.borderColor=col;
+    c.style.color=sel?"#0f1115":col;
+  });
+}
 cmpToggle.addEventListener("click",()=>{
   cmpMode=!cmpMode;
   cmpToggle.classList.toggle("on",cmpMode);
   cmpList.classList.toggle("open",cmpMode);
-  cmpList.querySelectorAll(".cmp-chip").forEach(c=>c.classList.toggle("sel",cmpSel.has(c.dataset.m)));
+  paintChips();
   rerun();
 });
 function methodParams(fd){
@@ -457,9 +471,6 @@ function render(items,secs){
 
 // 합집합 그리드 렌더 (스펙 4.5): 기준 방법 순위대로 한 그리드 + 방법별 컬러 배지.
 // 배지 클릭 = 그 방법의 top-N만 필터. 한 방법만 찾은 카드는 점선 테두리.
-const ARM_COLORS = {loracap:"#3ddc97", hires378:"#8a6cff", baseline:"#9aa3b2",
-                    hobit:"#ffb020", tic:"#ff6c9d", bigbatch:"#4cc3ff", base:"#7c8a85"};
-const armColor = n => ARM_COLORS[n] || "#6c8cff";
 let cmpData=null, cmpFilter=null;    // 마지막 비교 응답 / 배지 필터 방법명
 
 function cardHtml(r,rankLabel,picksHtml,uniq){

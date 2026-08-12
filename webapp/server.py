@@ -424,7 +424,7 @@ def _parse_methods(method, methods_csv):
     """단일 method 또는 콤마 목록 methods → 검증된 이름 리스트."""
     if methods_csv.strip():
         names = [_resolve_method(x) for x in methods_csv.split(",") if x.strip()]
-        return list(dict.fromkeys(names))[:4] or [_resolve_method(method)]
+        return list(dict.fromkeys(names))[:8] or [_resolve_method(method)]
     return [_resolve_method(method)]
 
 
