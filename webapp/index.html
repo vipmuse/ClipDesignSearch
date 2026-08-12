@@ -143,16 +143,17 @@
   .cmp-chip{background:var(--panel2);border:1px solid var(--line);border-radius:20px;
     padding:4px 11px;font-size:12px;cursor:pointer;color:var(--muted)}
   .cmp-chip.sel{background:rgba(108,140,255,.16);border-color:var(--accent);color:#fff}
-  .compare-grid{display:grid;gap:16px}
-  .cmp-col .cmp-col-head{display:flex;align-items:baseline;gap:8px;margin-bottom:10px;
-    padding-bottom:6px;border-bottom:1px solid var(--line)}
-  .cmp-col .cmp-col-head b{font-size:14px;color:var(--accent)}
-  .cmp-col .cmp-col-head span{font-size:11px;color:var(--muted)}
-  .cmp-col .cards{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
-  .pickrow{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px}
-  .pick{font-size:9px;font-weight:700;border-radius:5px;padding:1px 5px;
-    background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
-  .pick.only{background:rgba(61,220,151,.12);color:var(--good);border-color:rgba(61,220,151,.4)}
+  /* 합집합 그리드 (스펙 4.5): 한 그리드 + 방법 배지. 배지 클릭 = 그 방법 top-N 필터 */
+  .badgebar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
+  .badgebar .bb-lbl{font-size:12px;color:var(--muted)}
+  .mbadge{font-size:11px;font-weight:700;border-radius:6px;padding:2px 8px;cursor:pointer;
+    border:1px solid transparent;color:#0f1115;opacity:.92}
+  .mbadge:hover{opacity:1}
+  .mbadge.dim{opacity:.35}
+  .pickrow{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px;min-height:16px}
+  .pick{font-size:9px;font-weight:700;border-radius:5px;padding:1px 5px;color:#0f1115;cursor:pointer}
+  .item.uniq{border-style:dashed}
+  .item.uniq .rank{background:rgba(255,176,32,.85);color:#0f1115}
 </style>
 </head>
 <body>
@@ -308,8 +309,12 @@ cmpToggle.addEventListener("click",()=>{
   rerun();
 });
 function methodParams(fd){
-  if(cmpMode&&cmpSel.size>=2) fd.append("methods",[...cmpSel].join(","));
-  else fd.append("method",methodSel.value);
+  if(cmpMode&&cmpSel.size>=1){
+    // 셀렉터의 방법이 기준(정렬 축)이 되도록 항상 목록 맨 앞에 포함한다
+    const names=[methodSel.value,...[...cmpSel].filter(n=>n!==methodSel.value)];
+    if(names.length>=2){ cmpFilter=null; fd.append("methods",names.join(",")); return; }
+  }
+  fd.append("method",methodSel.value);
 }
 let lastQuery=null;   // {type:"image"|"text", q}
 function rerun(){
@@ -450,12 +455,18 @@ function render(items,secs){
     t.addEventListener("click",()=>openDesign(t.dataset.design)));
 }
 
-// 나란히 비교 렌더: 방법별 컬럼 + 합집합 순위 칩
-function cardHtml(r,i,picksHtml){
+// 합집합 그리드 렌더 (스펙 4.5): 기준 방법 순위대로 한 그리드 + 방법별 컬러 배지.
+// 배지 클릭 = 그 방법의 top-N만 필터. 한 방법만 찾은 카드는 점선 테두리.
+const ARM_COLORS = {loracap:"#3ddc97", hires378:"#8a6cff", baseline:"#9aa3b2",
+                    hobit:"#ffb020", tic:"#ff6c9d", bigbatch:"#4cc3ff", base:"#7c8a85"};
+const armColor = n => ARM_COLORS[n] || "#6c8cff";
+let cmpData=null, cmpFilter=null;    // 마지막 비교 응답 / 배지 필터 방법명
+
+function cardHtml(r,rankLabel,picksHtml,uniq){
   const pct=Math.max(0,Math.min(100,Math.round(r.score*100)));
   const nd=r.num_drawings||1;
-  return `<div class="item">
-    <span class="rank">#${i+1}</span>
+  return `<div class="item${uniq?" uniq":""}">
+    <span class="rank">${rankLabel}</span>
     <span class="score">${r.score.toFixed(3)}</span>
     <div class="thumb" data-design="${escapeHtml(r.design_id)}" title="클릭하면 이 출원의 모든 도면 보기">
       <img loading="lazy" src="${r.image_url}" alt="">
@@ -471,32 +482,56 @@ function cardHtml(r,i,picksHtml){
 }
 
 function renderCompare(data,secs){
+  cmpData={data,secs};
   const names=data.methods.map(p=>p.method);
-  statusText.textContent=`${names.join(" vs ")} · ${secs}s`;
-  const picks={};                                 // design_id -> {method: rank}
-  (data.union||[]).forEach(u=>{picks[u.design_id]=u.picks;});
-  const grid=document.createElement("div");
-  grid.className="compare-grid";
-  grid.style.gridTemplateColumns=`repeat(${data.methods.length},1fr)`;
-  grid.innerHTML=data.methods.map(p=>{
-    const cards=p.results.map((r,i)=>{
-      const pk=picks[r.design_id]||{};
-      const others=names.filter(n=>n!==p.method);
-      const chips=others.map(n=> n in pk
-        ? `<span class="pick">${escapeHtml(n)} #${pk[n]}</span>`
-        : "").join("");
-      const only=others.every(n=>!(n in pk))
-        ? `<span class="pick only">${escapeHtml(p.method)}만 발견</span>`:"";
-      return cardHtml(r,i,`<div class="pickrow">${only}${chips}</div>`);
-    }).join("");
-    return `<div class="cmp-col">
-      <div class="cmp-col-head"><b>${escapeHtml(p.method)}</b><span>${p.results.length}건</span></div>
-      <div class="cards">${cards}</div>
-    </div>`;
+  const primary=names.includes(methodSel.value)?methodSel.value:names[0];
+
+  // design_id -> {r(기준 방법 대표 카드), picks}
+  const info={};
+  data.methods.forEach(p=>p.results.forEach((r,i)=>{
+    if(!info[r.design_id]) info[r.design_id]={r,picks:{}};
+    info[r.design_id].picks[p.method]=i+1;
+    if(p.method===primary) info[r.design_id].r=r;   // 기준 방법의 점수·대표뷰 우선
+  }));
+
+  // 순서: 기준 방법 순위 → 나머지(타 방법 최고 순위순)
+  const prim=data.methods.find(p=>p.method===primary);
+  const order=prim.results.map(r=>r.design_id);
+  Object.entries(info).filter(([d,v])=>!(primary in v.picks))
+    .sort((a,b)=>Math.min(...Object.values(a[1].picks))-Math.min(...Object.values(b[1].picks)))
+    .forEach(([d])=>order.push(d));
+
+  // 배지 필터가 켜져 있으면 그 방법의 top-N 순서로 교체
+  let show=order, base=primary;
+  if(cmpFilter&&names.includes(cmpFilter)){
+    show=data.methods.find(p=>p.method===cmpFilter).results.map(r=>r.design_id);
+    base=cmpFilter;
+  }
+
+  statusText.textContent=`기준 ${base} · ${show.length}건 · ${secs}s`;
+  const bar=`<div class="badgebar"><span class="bb-lbl">배지 클릭 = 그 방법 top-N만 보기 ·</span>`+
+    names.map(n=>`<span class="mbadge${cmpFilter&&cmpFilter!==n?" dim":""}" data-m="${n}"
+      style="background:${armColor(n)}">${n}${cmpFilter===n?" ✕":""}</span>`).join("")+`</div>`;
+
+  const cards=show.map(d=>{
+    const v=info[d];
+    const uniq=Object.keys(v.picks).length===1;
+    const rank=v.picks[base]?`#${v.picks[base]}`:"–";
+    const chips=names.filter(n=>n in v.picks).map(n=>
+      `<span class="pick" data-m="${n}" style="background:${armColor(n)}"
+        title="${n}에서 ${v.picks[n]}위">${n} #${v.picks[n]}</span>`).join("");
+    return cardHtml(v.r,rank,`<div class="pickrow">${chips}</div>`,uniq);
   }).join("");
-  results.innerHTML="";results.appendChild(grid);
-  grid.querySelectorAll(".thumb[data-design]").forEach(t=>
+
+  results.innerHTML=`${bar}<div class="cards">${cards}</div>`;
+  results.querySelectorAll(".thumb[data-design]").forEach(t=>
     t.addEventListener("click",()=>openDesign(t.dataset.design)));
+  results.querySelectorAll(".mbadge,.pick").forEach(b=>b.addEventListener("click",e=>{
+    e.stopPropagation();
+    const m=b.dataset.m;
+    cmpFilter=(cmpFilter===m)?null:m;
+    renderCompare(cmpData.data,cmpData.secs);
+  }));
 }
 
 // 출원 전체 도면 모달 (브라우저 새창 아님)
