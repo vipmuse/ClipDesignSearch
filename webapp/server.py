@@ -491,4 +491,6 @@ def drawing(gid: int):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # PORT 환경변수로 오버라이드 가능 - 8000이 다른 프로세스에 선점된 채로 띄우면
+    # uvicorn이 bind 실패를 로그에만 남기고, 사용자는 그 포트의 엉뚱한 서버를 보게 된다.
+    uvicorn.run(app, host="127.0.0.1", port=int(os.environ.get("PORT", "8000")))
