@@ -1,7 +1,7 @@
 name: loracap
 description: "LoRA 용량 확장 - rank 32, fc1/fc2 추가, projection 학습 (baseline + 파라미터 용량 축만 변경)"
 extends: configs/lora_clip.yaml
-data: {builder: shared, pairs: data/pairs.jsonl}
+data: {builder: shared, pairs: data/subset_100k.jsonl}
 train:
   pk_views: 1
   locarno_aware: false

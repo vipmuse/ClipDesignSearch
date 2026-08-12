@@ -1,7 +1,7 @@
 name: hires378
 description: "해상도 224 -> 378 (baseline + 해상도 축만 변경. GradCache로 물리 8 / 유효 32 유지)"
 extends: configs/lora_clip.yaml
-data: {builder: shared, pairs: data/pairs.jsonl}
+data: {builder: shared, pairs: data/subset_100k.jsonl}
 model:
   # 반드시 huge 계열. s16-384를 쓰면 백본 크기가 같이 바뀌어 해상도 축이 오염된다 (스펙 3.4).
   model_id: models/metaclip-2-worldwide-huge-378
