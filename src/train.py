@@ -25,6 +25,7 @@ from torch.utils.data import DataLoader
 from dataset import Collator, PairDataset, PKBatchSampler, load_records, split_by_design, take_limit
 from gradcache import cached_grads
 from hobit import HobitBatchSampler, refresh_embeddings
+from hobit2 import Hobit2BatchSampler
 from model import build_model
 
 
@@ -170,6 +171,30 @@ def _encode_for_hobit(model, processor, imgs, device, dtype):
     return emb.cpu().numpy().astype("float32")
 
 
+@torch.no_grad()
+def _encode_texts_for_hobit(model, processor, texts, device, dtype, batch_size=256):
+    """hobit2 배치 구성용 텍스트 임베딩 [N, D] (L2 정규화).
+
+    제목 중복이 심하므로(유니크 비율이 낮다) 유니크만 인코딩하고 역매핑한다 -
+    전체를 그대로 돌리면 같은 문자열을 수만 번 인코딩하게 된다.
+    """
+    uniq = sorted(set(texts))
+    idx = {t: k for k, t in enumerate(uniq)}
+    out = []
+    for k in range(0, len(uniq), batch_size):
+        tok = processor(text=uniq[k:k + batch_size], return_tensors="pt", padding=True,
+                        truncation=True, max_length=77).to(device)
+        with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):
+            emb = model.get_text_features(input_ids=tok["input_ids"],
+                                          attention_mask=tok["attention_mask"])
+        if not torch.is_tensor(emb):      # MetaCLIP 2는 출력 객체 반환
+            emb = emb.pooler_output
+        out.append(F.normalize(emb.float(), dim=-1))
+    bank = torch.cat(out)                 # [U, D]
+    rows = torch.tensor([idx[t] for t in texts], device=bank.device)
+    return bank[rows]                     # [N, D] - 레코드 순서 보존
+
+
 def _pos_mask(design_label):
     """레코드 i,j가 같은 design_id면 positive. 대각선 포함, 대칭.
 
@@ -290,6 +315,12 @@ def main():
             train_recs, t["batch_size"], pool=t.get("hobit_pool", 4096),
             penalty=t.get("hobit_penalty", 10.0),
             mask_false_negatives=t.get("mask_false_negatives", True), seed=t["seed"])
+    elif which == "hobit2":
+        sampler = Hobit2BatchSampler(
+            train_recs, t["batch_size"], topk=t.get("hobit_topk", 200),
+            lam=t.get("hobit_lambda", 1.0), seed_frac=t.get("hobit_seed_frac", 0.25),
+            penalty=t.get("hobit_penalty", 10.0),
+            mask_false_negatives=t.get("mask_false_negatives", True), seed=t["seed"])
     elif which == "pk":
         sampler = PKBatchSampler(train_recs, t["batch_size"],
                                  views_per_design=t.get("pk_views", 4),
@@ -351,7 +382,7 @@ def main():
     for epoch in range(t["epochs"]):
         if stop:            # --max-steps로 끊긴 뒤 임베딩 갱신(실측 최대 ~2시간)을 낭비하지 않도록
             break           # 갱신 블록보다 반드시 위에 있어야 한다
-        if isinstance(sampler, HobitBatchSampler) and \
+        if isinstance(sampler, (HobitBatchSampler, Hobit2BatchSampler)) and \
                 epoch % max(1, t.get("hobit_refresh_every", 1)) == 0:
             # 배치 구성이 "현재" 모델 기준이어야 hard negative가 의미를 갖는다.
             # 학습 집합 전체를 1회 추론하는 비용이 에폭마다 든다 → refresh_every로 조절.
@@ -363,8 +394,26 @@ def main():
                     model, train_recs, args.image_root, cfg["model"]["image_size"],
                     lambda imgs: _encode_for_hobit(model, processor, imgs, device, dtype),
                     num_workers=t["num_workers"])
-            sampler.set_embeddings(emb)
-            print(f"[hobit] epoch {epoch}: 임베딩 {emb.shape} 갱신", flush=True)
+            if isinstance(sampler, Hobit2BatchSampler):
+                # 논문은 배치 선택 온도를 손실 온도와 동일하게 둔다 (Remark 5.9).
+                # CLIP은 온도가 학습되므로 갱신 시점의 값을 읽는다.
+                tau = float(1.0 / logit_scale.exp().item())
+                was_training = model.training
+                model.eval()
+                try:
+                    txt_emb = _encode_texts_for_hobit(
+                        model, processor, [r.get("text", "") for r in train_recs],
+                        device, dtype)
+                finally:
+                    if was_training:
+                        model.train()
+                # 배치 구성이 GPU에서 돌도록 둘 다 device 텐서로 넘긴다
+                sampler.set_embeddings(torch.from_numpy(emb).to(device), txt_emb, tau)
+                print(f"[hobit2] epoch {epoch}: 이미지 {emb.shape} + 텍스트 "
+                      f"{tuple(txt_emb.shape)} 갱신, tau={tau:.4f}", flush=True)
+            else:
+                sampler.set_embeddings(emb)
+                print(f"[hobit] epoch {epoch}: 임베딩 {emb.shape} 갱신", flush=True)
         if n_chunks > 1:
             # GradCache 2패스 경로: 청크 N개를 모아 옵티마이저 스텝 1회를 만든다.
             # grad_accum은 여기서 적용하지 않는다 (시작 시점에 이미 상호배제 검증됨).

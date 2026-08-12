@@ -268,3 +268,18 @@ def test_hires378은_유효_네거티브_수를_보존한다():
     eff_c = c["batch_size"] * c["grad_cache_chunks"]
     eff_b = b["batch_size"] * b["grad_cache_chunks"]
     assert eff_c == eff_b, f"유효 네거티브가 다르다: {eff_c} vs {eff_b}"
+
+
+def test_hobit2는_배치_구성_축만_바꾼다():
+    """hobit과 같은 축(배치 구성)의 다른 방법. sampler 관련 키 외에는 baseline과
+    같아야 hobit vs hobit2 비교가 스코어 함수의 기여로 읽힌다."""
+    c = registry.resolve("hobit2")
+    b = registry.resolve("baseline")
+    exempt = ("output_dir", "sampler", "hobit_topk", "hobit_lambda",
+              "hobit_seed_frac", "hobit_penalty", "hobit_refresh_every")
+    ct = {k: v for k, v in c["train"].items() if k not in exempt}
+    bt = {k: v for k, v in b["train"].items() if k not in exempt}
+    assert ct == bt, f"train 블록에 다른 축이 섞였다: {set(ct.items()) ^ set(bt.items())}"
+    assert c["lora"] == b["lora"] and c["model"] == b["model"]
+    assert c["train"]["sampler"] == "hobit2"
+    assert c["train"]["hobit_lambda"] == 1.0
