@@ -26,6 +26,7 @@ from dataset import Collator, PairDataset, PKBatchSampler, load_records, split_b
 from gradcache import cached_grads
 from hobit import HobitBatchSampler, refresh_embeddings
 from hobit2 import Hobit2BatchSampler
+from vacsr import VacsrAdapter, vacsr_loss, save_adapter
 from model import build_model
 
 
@@ -285,6 +286,14 @@ def main():
     # TypeError로 죽고 원인이 설정에 있다는 게 드러나지 않는다 - tic_weight와 같은
     # 이유로 여기서 int로 고정한다.
     n_chunks = int(t.get("grad_cache_chunks", 1))
+    vacsr_on = bool(t.get("vacsr", False))
+    if vacsr_on and (n_chunks > 1 or t.get("tic_weight", 0.0) > 0
+                     or t.get("img2img_weight", 0.0) > 0):
+        # vacsr는 손실을 통째로 교체한다 - InfoNCE에 얹히는 축(GradCache·TIC·img2img)과
+        # 결합하면 어느 축의 기여인지 읽을 수 없다. 조용히 한쪽을 무시하는 대신 죽는다.
+        print("오류: vacsr는 grad_cache_chunks>1, tic_weight>0, img2img_weight>0과 "
+              "함께 쓸 수 없습니다. 단일 축 비교가 깨집니다.")
+        sys.exit(1)
     if n_chunks > 1 and t["grad_accum"] > 1:
         # GradCache 경로는 grad_accum을 적용하지 않는다 - 조용히 한쪽을 무시하면
         # 유효 배치 크기가 설정과 달라져 config가 거짓말을 하게 된다.
@@ -339,10 +348,27 @@ def main():
     logit_scale = model.base_model.model.logit_scale
     lora_params = [p for n, p in model.named_parameters()
                    if p.requires_grad and "logit_scale" not in n]
-    optim = torch.optim.AdamW([
+    vac = None
+    if vacsr_on:
+        # 스케줄러 생성 전에 만들어야 한다 - LambdaLR이 param_groups 수를 고정하므로
+        # 나중에 add_param_group을 하면 sched.step()의 strict zip이 깨진다.
+        dim = getattr(model.config, "projection_dim", None)
+        if not dim:
+            print("오류: model.config.projection_dim을 찾을 수 없어 vacsr 어댑터 "
+                  "차원을 정할 수 없습니다.")
+            sys.exit(1)
+        vac = VacsrAdapter(dim).to(device)
+        n_vac = sum(p.numel() for p in vac.parameters())
+        print(f"[vacsr] adapter dim={dim} params={n_vac:,}", flush=True)
+    groups = [
         {"params": lora_params, "lr": t["lr_lora"], "weight_decay": t["weight_decay"]},
         {"params": [logit_scale], "lr": t["lr_logit_scale"], "weight_decay": 0.0},
-    ])
+    ]
+    if vac is not None:
+        groups.append({"params": vac.parameters(),
+                       "lr": float(t.get("vacsr_lr", 5.0e-4)),
+                       "weight_decay": t["weight_decay"]})
+    optim = torch.optim.AdamW(groups)
 
     if n_chunks > 1:
         # 청크 N개가 스텝 1회 - 자투리 그룹은 에폭 끝에서 버리므로 내림 나눗셈.
@@ -373,6 +399,11 @@ def main():
     if tic_on:
         print(f"[tic] ON - tic_weight={t['tic_weight']} "
               f"floor={t['tic_floor']} ceiling={t['tic_ceiling']}", flush=True)
+    if vacsr_on:
+        print(f"[vacsr] ON - alpha={t.get('vacsr_alpha', 0.0005)} "
+              f"gamma={t.get('vacsr_gamma', 1.0)} lr={t.get('vacsr_lr', 5.0e-4)} "
+              f"(학습 중 R@K는 코사인 기준 진행 신호일 뿐, 최종 평가는 어댑터 점수)",
+              flush=True)
     eval_batches = args.eval_batches or None
     os.makedirs(t["output_dir"], exist_ok=True)
     print(f"baseline: {evaluate(model, eval_loader, device, eval_batches)}")
@@ -503,17 +534,28 @@ def main():
                 with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):
                     out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
                                 pixel_values=enc["pixel_values"])
-                    # 키워드로 넘긴다. text_label과 head_label은 타입도 모양도 같아 자리가
-                    # 바뀌어도 아무 데서도 안 터지고, 대신 eligible이 매 배치 공집합이 되어
-                    # (제목이 같으면 헤드명사도 같다) tic arm이 이름만 tic인 baseline이 된다.
-                    loss, lstats = compose_loss(out, pos, t, design_label=design_label,
-                                                text_label=text_label, head_label=head_label)
+                    if not vacsr_on:
+                        # 키워드로 넘긴다. text_label과 head_label은 타입도 모양도 같아 자리가
+                        # 바뀌어도 아무 데서도 안 터지고, 대신 eligible이 매 배치 공집합이 되어
+                        # (제목이 같으면 헤드명사도 같다) tic arm이 이름만 tic인 baseline이 된다.
+                        loss, lstats = compose_loss(out, pos, t, design_label=design_label,
+                                                    text_label=text_label, head_label=head_label)
+                        loss = loss / t["grad_accum"]
+
+                if vacsr_on:
+                    # 손실은 autocast 밖 fp32 - KL·logvar가 bf16에서 불안정하다.
+                    # 기존 경로와 정밀도가 다르지만 vacsr는 손실 자체가 바뀌는 축이므로
+                    # 손실 정밀도는 방법의 일부다 (bigbatch의 autocast 정합과는 다른 상황).
+                    loss, lstats = vacsr_loss(vac, out.image_embeds, out.text_embeds,
+                                              alpha=float(t.get("vacsr_alpha", 0.0005)),
+                                              gamma=float(t.get("vacsr_gamma", 1.0)))
                     loss = loss / t["grad_accum"]
 
                 loss.backward()
 
                 if (i + 1) % t["grad_accum"] == 0:
-                    torch.nn.utils.clip_grad_norm_(lora_params, 1.0)
+                    torch.nn.utils.clip_grad_norm_(
+                        lora_params + (list(vac.parameters()) if vac is not None else []), 1.0)
                     optim.step(); sched.step(); optim.zero_grad()
                     with torch.no_grad():
                         logit_scale.clamp_(max=math.log(100))    # 온도 폭주 방지
@@ -530,10 +572,19 @@ def main():
                             print(f"{msg} tic={lstats['tic']:.4e} "
                                   f"(×{t['tic_weight']}→{t['tic_weight']*lstats['tic']:.4e}) "
                                   f"위반/대상={lstats['n_violating']}/{lstats['n_eligible']}")
+                        elif vacsr_on:
+                            # p_diag(대각 예측 확률)가 안 오르면 어댑터가 학습되지 않는
+                            # 것이고, sig_pos(양성 분산)가 계속 크면 라벨 회귀가 안 되는
+                            # 것이다 - 총 손실만으로는 이 둘이 안 보인다.
+                            print(f"{msg} recon={lstats['recon']:.4f} "
+                                  f"kl={lstats['kl']:.1f} p_diag={lstats['p_diag']:.3f} "
+                                  f"sig_pos={lstats['sig_pos']:.3f}")
                         else:
                             print(msg)
                     if args.save_every and step % args.save_every == 0:
                         model.save_pretrained(os.path.join(t["output_dir"], "latest"))
+                        if vac is not None:
+                            save_adapter(vac, os.path.join(t["output_dir"], "latest"))
                         print(f"  [checkpoint] step {step} -> latest")
                     if args.max_steps and step >= args.max_steps:
                         stop = True
@@ -542,8 +593,13 @@ def main():
         metrics = evaluate(model, eval_loader, device, eval_batches)
         print(f"[epoch {epoch}] {metrics}")
         model.save_pretrained(os.path.join(t["output_dir"], f"epoch{epoch}"))  # LoRA 어댑터만 저장
+        if vac is not None:
+            save_adapter(vac, os.path.join(t["output_dir"], f"epoch{epoch}"))
 
     model.save_pretrained(os.path.join(t["output_dir"], "final"))
+    if vac is not None:
+        # 평가·서빙이 이 파일의 존재로 vacsr 점수 경로를 선택한다 (eval_retrieval.py).
+        save_adapter(vac, os.path.join(t["output_dir"], "final"))
     print("saved LoRA adapter ->", t["output_dir"])
     if device == "cuda":
         # 조용한 VRAM 스필 감지용. loracap에서 peak 32.03GiB로 카드를 넘겨 크래시

@@ -174,6 +174,7 @@ outputs/methods/<name>/
 | `all` | 전부 ON | 최종 레시피 |
 | (선택) `hobit` | baseline + submodular greedy 배치 구성 | ① 배치 구성의 원리적 대체 (ICML 2026) |
 | (선택) `hobit2` | baseline + HOBIT 논문 재현(크로스모달 hardness, near-positive 감점 lambda 1.0) | hobit의 스코어 함수 교체 - 논문 입수(papers/) 후 재수행 |
+| (선택) `vacsr` | baseline + 변분 어댑터 유사도 표현 (papers/(65621)) | 이진 주석의 false negative를 라벨 없이 흡수 - T2I는 어댑터 점수로 평가 |
 | (선택) `tic` | baseline + 텍스트 모달 내부 대조(헤드명사+상한 선택) | ③ 같은 물품군의 다른 물품이 텍스트 공간에서 구분되지 않음 |
 | (선택) `pk-only` | PK만, 마스킹 없이 | 유해 상호작용 실증 |
 | (선택) `all-mlp` / `all-proj` / `all-r32` | all + LoRA 확장 | ⑫ 계열, 최종 레시피 위 추가 기여 |

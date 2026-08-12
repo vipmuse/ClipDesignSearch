@@ -283,3 +283,17 @@ def test_hobit2는_배치_구성_축만_바꾼다():
     assert c["lora"] == b["lora"] and c["model"] == b["model"]
     assert c["train"]["sampler"] == "hobit2"
     assert c["train"]["hobit_lambda"] == 1.0
+
+
+def test_vacsr는_유사도_표현_축만_바꾼다():
+    """손실·점수 함수 교체가 이 방법의 전부다. 그 외에는 baseline과 같아야
+    Δ를 유사도 표현의 기여로 읽는다."""
+    c = registry.resolve("vacsr")
+    b = registry.resolve("baseline")
+    exempt = ("output_dir", "vacsr", "vacsr_alpha", "vacsr_gamma", "vacsr_lr")
+    ct = {k: v for k, v in c["train"].items() if k not in exempt}
+    bt = {k: v for k, v in b["train"].items() if k not in exempt}
+    assert ct == bt, f"train 블록에 다른 축이 섞였다: {set(ct.items()) ^ set(bt.items())}"
+    assert c["lora"] == b["lora"] and c["model"] == b["model"]
+    assert c["train"]["vacsr"] is True
+    assert c["train"]["mask_false_negatives"] is False,         "FN 흡수는 라벨이 아니라 방법의 몫 - 마스크를 주면 검증 대상이 사라진다"
