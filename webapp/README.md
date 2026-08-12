@@ -43,7 +43,6 @@
 
 인덱스 준비:
 ```powershell
-python scripts
-un_ablation.py --arms baseline hobit tic loracap bigbatch hires378 --epochs 3
-python src\embed.py build --config outputs\methodsaseline\config.resolved.yaml --adapter none --index outputs\methodsase\index --data data\subset_100k.jsonl
+python scripts\run_ablation.py --arms baseline hobit tic loracap bigbatch hires378 --epochs 3
+python src\embed.py build --config outputs\methods\baseline\config.resolved.yaml --adapter none --index outputs\methods\base\index --data data\subset_100k.jsonl
 ```
