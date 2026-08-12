@@ -155,7 +155,7 @@ def _encode_batch(model, enc, device, dtype):
     with torch.autocast(device_type=device, dtype=dtype, enabled=(dtype != torch.float32)):
         out = model(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
                     pixel_values=enc["pixel_values"])
-    return out, design_label, text_label, head_label, enc
+    return out, design_label, text_label, head_label
 
 
 @torch.no_grad()
@@ -383,7 +383,7 @@ def main():
                         rng_states.append((torch.get_rng_state(),
                                            torch.cuda.get_rng_state(device)
                                            if device == "cuda" else None))
-                        out, d, tl, hl, _ = _encode_batch(model, dict(e), device, dtype)
+                        out, d, tl, hl = _encode_batch(model, dict(e), device, dtype)
                         embeds.append((out.image_embeds.detach(), out.text_embeds.detach()))
                         labels.append((d, tl, hl))
                 img = torch.cat([a for a, _ in embeds])
@@ -395,8 +395,14 @@ def main():
                 # pos는 반드시 연결된 전체 라벨로 - 청크별로 만들면 네거티브가 갇힌다
                 pos = _pos_mask(design) if mask_fn \
                     else torch.eye(design.size(0), dtype=torch.bool, device=device)
-                loss_val, g_img, g_txt, lstats = cached_grads(
-                    img, txt, pos, t, design, text_l, head_l, logit_scale, compose_loss)
+                # 기존 경로는 compose_loss를 autocast 안에서 부른다. 여기서도 같은
+                # 컨텍스트로 감싸야 로짓 dtype이 맞는다 - 밖에서 부르면 로짓이 fp32가
+                # 되어 bigbatch만 손실을 더 정밀하게 계산하고, Δ가 "네거티브 8배"가
+                # 아니라 "네거티브 8배 + 정밀도"의 합이 된다(실측 그래디언트 차이 0.3~0.6%).
+                with torch.autocast(device_type=device, dtype=dtype,
+                                    enabled=(dtype != torch.float32)):
+                    loss_val, g_img, g_txt, lstats = cached_grads(
+                        img, txt, pos, t, design, text_l, head_l, logit_scale, compose_loss)
 
                 # 2패스: 청크별 재순전파 + 그래디언트 주입.
                 # 1패스에서 저장한 RNG 상태를 되돌려 같은 드롭아웃 마스크를 재현한다.
@@ -405,7 +411,7 @@ def main():
                     torch.set_rng_state(cpu_state)
                     if cuda_state is not None:
                         torch.cuda.set_rng_state(cuda_state, device)
-                    out, _, _, _, _ = _encode_batch(model, dict(e), device, dtype)
+                    out, _, _, _ = _encode_batch(model, dict(e), device, dtype)
                     k = out.image_embeds.size(0)
                     torch.autograd.backward([out.image_embeds, out.text_embeds],
                                             [g_img[off:off + k], g_txt[off:off + k]])
@@ -419,9 +425,11 @@ def main():
                 group = []
                 if step % t["log_every"] == 0:
                     msg = (f"e{epoch} s{step}/{total_steps} loss={loss_val:.4f} "
-                           f"eff_batch={t['batch_size'] * t['grad_cache_chunks']} "
+                           f"eff_batch={img.size(0)} "
                            f"lr={sched.get_last_lr()[0]:.2e}")
                     if tic_on:
+                        # 이 로그가 왜 항 값과 위반/대상 쌍 수를 따로 찍는지는
+                        # 아래 기존 경로의 같은 블록 주석 참조.
                         print(f"{msg} tic={lstats['tic']:.4e} "
                               f"(×{t['tic_weight']}→{t['tic_weight']*lstats['tic']:.4e}) "
                               f"위반/대상={lstats['n_violating']}/{lstats['n_eligible']}")
