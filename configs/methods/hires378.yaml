@@ -1,0 +1,19 @@
+name: hires378
+description: "해상도 224 -> 378 (baseline + 해상도 축만 변경. GradCache로 물리 8 / 유효 32 유지)"
+extends: configs/lora_clip.yaml
+data: {builder: shared, pairs: data/pairs.jsonl}
+model:
+  # 반드시 huge 계열. s16-384를 쓰면 백본 크기가 같이 바뀌어 해상도 축이 오염된다 (스펙 3.4).
+  model_id: models/metaclip-2-worldwide-huge-378
+  image_size: 378
+train:
+  # 378은 토큰이 2.85배(729 vs 256)라 batch 32는 65GB 추정으로 불가. 물리 배치를 8로
+  # 내리면 네거티브가 8로 줄어 bigbatch 축과 섞이므로, GradCache 청크 4로 유효 32를
+  # 복원한다. 8 x 4 = 32 = baseline의 유효 네거티브. 이 곱이 테스트로 고정돼 있다.
+  batch_size: 8
+  grad_cache_chunks: 4
+  pk_views: 1
+  locarno_aware: false
+  mask_false_negatives: false
+  augment: false
+  img2img_weight: 0.0

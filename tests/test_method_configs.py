@@ -243,3 +243,28 @@ def test_bigbatch은_batch_size를_바꾸지_않는다():
     b = registry.resolve("baseline")["train"]
     assert c["batch_size"] == b["batch_size"]
     assert c["grad_cache_chunks"] > 1 and b["grad_cache_chunks"] == 1
+
+
+def test_hires378은_해상도_축만_바꾼다():
+    """model_id와 image_size 외에는 baseline과 같아야 Δ가 해상도의 기여로 읽힌다.
+    batch_size/grad_cache_chunks는 그 곱(유효 네거티브)이 보존되는 한 면제 -
+    378은 batch 32가 VRAM에 안 들어가므로 물리 배치를 낮추되 GradCache로 복원한다."""
+    c = registry.resolve("hires378")
+    b = registry.resolve("baseline")
+    assert c["model"]["model_id"] == "models/metaclip-2-worldwide-huge-378"
+    assert c["model"]["image_size"] == 378
+    exempt = ("output_dir", "batch_size", "grad_cache_chunks")
+    ct = {k: v for k, v in c["train"].items() if k not in exempt}
+    bt = {k: v for k, v in b["train"].items() if k not in exempt}
+    assert ct == bt, f"train 블록에 다른 축이 섞였다: {set(ct.items()) ^ set(bt.items())}"
+    assert c["lora"] == b["lora"], "용량 축은 loracap의 몫"
+
+
+def test_hires378은_유효_네거티브_수를_보존한다():
+    """물리 배치를 낮춘 만큼 GradCache 청크로 복원해야 네거티브 수 축이 안 섞인다.
+    이 곱이 어긋나면 hires378의 Δ는 해상도가 아니라 해상도+네거티브의 합이 된다."""
+    c = registry.resolve("hires378")["train"]
+    b = registry.resolve("baseline")["train"]
+    eff_c = c["batch_size"] * c["grad_cache_chunks"]
+    eff_b = b["batch_size"] * b["grad_cache_chunks"]
+    assert eff_c == eff_b, f"유효 네거티브가 다르다: {eff_c} vs {eff_b}"
