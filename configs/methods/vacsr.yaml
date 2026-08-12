@@ -1,0 +1,17 @@
+name: vacsr
+description: "변분 어댑터로 유사도를 연속 분포로 표현 - 이진 주석의 false negative를 라벨 없이 흡수 (baseline + 유사도 표현 축만 변경)"
+extends: configs/lora_clip.yaml
+data: {builder: shared, pairs: data/subset_100k.jsonl}
+train:
+  vacsr: true
+  # 논문 값: alpha(KL 가중) 0.0005, gamma(분산 손실 가중) 1.0, 어댑터 lr 5e-4.
+  # 감독은 baseline InfoNCE와 같은 배치 대각선뿐 - FN 흡수는 라벨이 아니라
+  # 방법이 해야 한다는 것이 이 arm의 검증 대상이다.
+  vacsr_alpha: 0.0005
+  vacsr_gamma: 1.0
+  vacsr_lr: 5.0e-4
+  pk_views: 1
+  locarno_aware: false
+  mask_false_negatives: false
+  augment: false
+  img2img_weight: 0.0

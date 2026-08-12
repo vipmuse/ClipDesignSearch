@@ -23,6 +23,7 @@ import yaml
 from dataset import load_records, split_by_design, take_limit
 from embed import encode_images, encode_text, load_tuned
 from metrics import MetricAccumulator, rank_metrics
+from vacsr import load_adapter, pairwise_score
 
 CHUNK = 256          # 쿼리 청크 (메모리 절약: sim 행렬을 [CHUNK, N]씩 계산)
 
@@ -43,13 +44,18 @@ def eval_i2i(img_mat, design_ids):
     return acc.result()
 
 
-def eval_t2i(txt_mat, uniq_texts, img_mat, img_texts):
-    """텍스트→도면: 동일 텍스트를 가진 모든 도면이 정답."""
+def eval_t2i(txt_mat, uniq_texts, img_mat, img_texts, scorer=None):
+    """텍스트→도면: 동일 텍스트를 가진 모든 도면이 정답.
+
+    scorer가 있으면(vacsr arm) 코사인 대신 그 함수로 유사도를 계산한다 -
+    vacsr의 유사도는 어댑터 출력이라 내적이 아니고, 코사인으로 평가하면
+    학습된 것과 다른 것을 재게 된다. scorer(s, e) -> [e-s, N] numpy.
+    """
     acc = MetricAccumulator()
     it = np.asarray(img_texts)
     for s in range(0, len(uniq_texts), CHUNK):
         e = min(s + CHUNK, len(uniq_texts))
-        sim = txt_mat[s:e] @ img_mat.T
+        sim = scorer(s, e) if scorer is not None else txt_mat[s:e] @ img_mat.T
         rel = np.asarray(uniq_texts[s:e])[:, None] == it[None, :]
         acc.update(*rank_metrics(sim, rel))
     return acc.result()
@@ -98,7 +104,17 @@ def main():
 
     uniq_texts = sorted(set(img_texts))
     txt_mat = encode_text_chunked(model, proc, uniq_texts, device)
-    t2i = eval_t2i(txt_mat, uniq_texts, img_mat, img_texts)
+
+    # vacsr 어댑터가 체크포인트에 있으면 T2I는 어댑터 점수로 잰다. I2I는 크로스모달
+    # 어댑터의 적용 대상이 아니라 코사인 유지 - 방법의 정의가 그렇다 (src/vacsr.py).
+    vac = None if str(args.adapter).lower() in ("none", "", "base")         else load_adapter(args.adapter, device)
+    scorer = None
+    if vac is not None:
+        txt_t = torch.from_numpy(txt_mat).to(device)
+        img_t = torch.from_numpy(img_mat).to(device)
+        scorer = lambda s, e: pairwise_score(vac, txt_t[s:e], img_t).cpu().numpy()
+        print("[vacsr] T2I를 어댑터 점수로 평가")
+    t2i = eval_t2i(txt_mat, uniq_texts, img_mat, img_texts, scorer=scorer)
     print(f"T->I  {t2i}")
 
     name = "base" if str(args.adapter).lower() in ("none", "", "base") \
@@ -108,6 +124,7 @@ def main():
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({"adapter": args.adapter, "gallery": len(eval_recs),
                    "eval_ratio": ratio, "seed": seed,
+                   "t2i_scorer": "vacsr" if vac is not None else "cosine",
                    "I2I": i2i, "T2I": t2i}, f, ensure_ascii=False, indent=2)
     print(f"saved -> {out_path}")
 
