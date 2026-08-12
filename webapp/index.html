@@ -129,6 +129,30 @@
     border-radius:20px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;display:flex;gap:2px}
   .loc-toggle span{padding:1px 6px;border-radius:12px}
   .loc-toggle .on{background:var(--accent);color:#fff}
+
+  /* 학습 방법 선택/비교 */
+  .methodbox{padding:14px 16px}
+  .methodbox .mb-head{font-size:13px;font-weight:600;margin-bottom:10px;display:flex;align-items:center}
+  .methodbox select{width:100%}
+  .methodbox .mdesc{color:var(--muted);font-size:11px;margin-top:7px;line-height:1.45;min-height:16px}
+  .cmp-toggle{margin-left:auto;background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+    border-radius:20px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer}
+  .cmp-toggle.on{background:var(--accent);color:#fff;border-color:transparent}
+  .cmp-list{display:none;flex-wrap:wrap;gap:7px;margin-top:10px}
+  .cmp-list.open{display:flex}
+  .cmp-chip{background:var(--panel2);border:1px solid var(--line);border-radius:20px;
+    padding:4px 11px;font-size:12px;cursor:pointer;color:var(--muted)}
+  .cmp-chip.sel{background:rgba(108,140,255,.16);border-color:var(--accent);color:#fff}
+  .compare-grid{display:grid;gap:16px}
+  .cmp-col .cmp-col-head{display:flex;align-items:baseline;gap:8px;margin-bottom:10px;
+    padding-bottom:6px;border-bottom:1px solid var(--line)}
+  .cmp-col .cmp-col-head b{font-size:14px;color:var(--accent)}
+  .cmp-col .cmp-col-head span{font-size:11px;color:var(--muted)}
+  .cmp-col .cards{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}
+  .pickrow{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px}
+  .pick{font-size:9px;font-weight:700;border-radius:5px;padding:1px 5px;
+    background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
+  .pick.only{background:rgba(61,220,151,.12);color:var(--good);border-color:rgba(61,220,151,.4)}
 </style>
 </head>
 <body>
@@ -140,6 +164,15 @@
 
   <div class="grid-top">
    <div class="leftcol">
+    <!-- 학습 방법 선택 -->
+    <div class="card methodbox">
+      <div class="mb-head">학습 방법
+        <button class="cmp-toggle" id="cmpToggle" type="button" title="여러 방법을 나란히 비교">비교 모드</button>
+      </div>
+      <select id="methodSel"></select>
+      <div class="mdesc" id="methodDesc"></div>
+      <div class="cmp-list" id="cmpList"></div>
+    </div>
     <!-- 업로드 패널 -->
     <div class="card uploader">
       <div class="drop" id="drop">
@@ -238,6 +271,54 @@ window.addEventListener("paste",e=>{const it=[...e.clipboardData.files][0];if(it
 
 const predicted=$("#predicted"), predChips=$("#predChips"), textq=$("#textq"), textBtn=$("#textBtn");
 
+// ── 학습 방법 선택/비교 ──
+const methodSel=$("#methodSel"), methodDesc=$("#methodDesc"),
+      cmpToggle=$("#cmpToggle"), cmpList=$("#cmpList");
+let METHODS_INFO=[], cmpMode=false, cmpSel=new Set();
+
+async function loadMethods(){
+  try{
+    const r=await fetch("/api/methods"); const d=await r.json();
+    METHODS_INFO=d.methods;
+    methodSel.innerHTML=d.methods.map(m=>
+      `<option value="${m.name}" ${m.name===d.default?"selected":""}>${m.name} (${m.image_size}px · ${m.ntotal.toLocaleString()}장)</option>`).join("");
+    cmpList.innerHTML=d.methods.map(m=>
+      `<span class="cmp-chip" data-m="${m.name}">${m.name}</span>`).join("");
+    cmpList.querySelectorAll(".cmp-chip").forEach(c=>c.addEventListener("click",()=>{
+      const n=c.dataset.m;
+      if(cmpSel.has(n)){cmpSel.delete(n);c.classList.remove("sel");}
+      else if(cmpSel.size<3){cmpSel.add(n);c.classList.add("sel");}
+      rerun();
+    }));
+    // 기본 비교조합: 상위 2개
+    d.methods.slice(0,2).forEach(m=>cmpSel.add(m.name));
+    updateDesc();
+  }catch(e){ methodDesc.textContent="방법 목록을 불러오지 못했습니다"; }
+}
+function updateDesc(){
+  const m=METHODS_INFO.find(x=>x.name===methodSel.value);
+  methodDesc.textContent=m?m.desc:"";
+}
+methodSel.addEventListener("change",()=>{updateDesc();rerun();});
+cmpToggle.addEventListener("click",()=>{
+  cmpMode=!cmpMode;
+  cmpToggle.classList.toggle("on",cmpMode);
+  cmpList.classList.toggle("open",cmpMode);
+  cmpList.querySelectorAll(".cmp-chip").forEach(c=>c.classList.toggle("sel",cmpSel.has(c.dataset.m)));
+  rerun();
+});
+function methodParams(fd){
+  if(cmpMode&&cmpSel.size>=2) fd.append("methods",[...cmpSel].join(","));
+  else fd.append("method",methodSel.value);
+}
+let lastQuery=null;   // {type:"image"|"text", q}
+function rerun(){
+  if(!lastQuery)return;
+  if(lastQuery.type==="image"&&picked) imageSearch(activeCat);
+  else if(lastQuery.type==="text") textSearch(lastQuery.q);
+}
+loadMethods();
+
 clearBtn.addEventListener("click",()=>{
   picked=null;file.value="";preview.style.display="none";searchBtn.disabled=true;
   predicted.style.display="none";activeCat="";alpha.value=100;fmtAlpha();
@@ -263,9 +344,11 @@ async function imageSearch(category){
   searchBtn.disabled=true;
   results.innerHTML='<div class="loading"><div class="spinner"></div>검색 중…</div>';
   statusText.textContent="검색 중…";
+  lastQuery={type:"image"};
   const fd=new FormData();
   fd.append("image",picked);
   fd.append("alpha",(alpha.value/100).toString());
+  methodParams(fd);
   if(activeCat) fd.append("category",activeCat);
   const topk=$("#topk").value;
   const t0=performance.now();
@@ -273,11 +356,17 @@ async function imageSearch(category){
     const res=await fetch(`/api/search?topk=${topk}`,{method:"POST",body:fd});
     if(!res.ok)throw new Error(await res.text());
     const data=await res.json();
-    renderPredicted(data.predicted_labels, data.used_category);
-    renderLocarno(data.locarno_facets);
     const secs=((performance.now()-t0)/1000).toFixed(2);
-    render(data.results,secs);
-    if(data.used_category) statusText.textContent=`${data.results.length}건 · 개념 "${data.used_category}" · ${secs}s`;
+    if(data.compare){
+      renderPredicted(data.methods[0].predicted_labels, data.methods[0].used_category);
+      renderLocarno(data.methods[0].locarno_facets);
+      renderCompare(data,secs);
+    }else{
+      renderPredicted(data.predicted_labels, data.used_category);
+      renderLocarno(data.locarno_facets);
+      render(data.results,secs);
+      if(data.used_category) statusText.textContent=`${data.results.length}건 · 개념 "${data.used_category}" · ${secs}s`;
+    }
   }catch(err){
     results.innerHTML=`<div class="empty">오류: ${err.message}</div>`;
     statusText.textContent="실패";
@@ -292,15 +381,22 @@ async function textSearch(q){
   predicted.style.display="none";
   results.innerHTML='<div class="loading"><div class="spinner"></div>검색 중…</div>';
   statusText.textContent=`"${q}" 검색 중…`;
+  lastQuery={type:"text",q};
   const fd=new FormData(); fd.append("query",q);
+  methodParams(fd);
   const topk=$("#topk").value;
   const t0=performance.now();
   try{
     const res=await fetch(`/api/search_text?topk=${topk}`,{method:"POST",body:fd});
     if(!res.ok)throw new Error(await res.text());
     const data=await res.json();
-    renderLocarno(data.locarno_facets);
-    render(data.results,((performance.now()-t0)/1000).toFixed(2));
+    if(data.compare){
+      renderLocarno(data.methods[0].locarno_facets);
+      renderCompare(data,((performance.now()-t0)/1000).toFixed(2));
+    }else{
+      renderLocarno(data.locarno_facets);
+      render(data.results,((performance.now()-t0)/1000).toFixed(2));
+    }
   }catch(err){
     results.innerHTML=`<div class="empty">오류: ${err.message}</div>`;
     statusText.textContent="실패";
@@ -351,6 +447,55 @@ function render(items,secs){
     </div>`;}).join("");
   cards.innerHTML="";cards.appendChild(el);
   el.querySelectorAll(".thumb[data-design]").forEach(t=>
+    t.addEventListener("click",()=>openDesign(t.dataset.design)));
+}
+
+// 나란히 비교 렌더: 방법별 컬럼 + 합집합 순위 칩
+function cardHtml(r,i,picksHtml){
+  const pct=Math.max(0,Math.min(100,Math.round(r.score*100)));
+  const nd=r.num_drawings||1;
+  return `<div class="item">
+    <span class="rank">#${i+1}</span>
+    <span class="score">${r.score.toFixed(3)}</span>
+    <div class="thumb" data-design="${escapeHtml(r.design_id)}" title="클릭하면 이 출원의 모든 도면 보기">
+      <img loading="lazy" src="${r.image_url}" alt="">
+      ${nd>1?`<span class="ndraw">🖼 ${nd}</span>`:""}
+    </div>
+    <div class="meta">
+      <div class="title">${escapeHtml(r.title||"(제목 없음)")}</div>
+      <div class="pno">출원 ${escapeHtml(r.patent_no||r.design_id||"")}</div>
+      ${picksHtml||""}
+      <div class="bar"><i style="width:${pct}%"></i></div>
+    </div>
+  </div>`;
+}
+
+function renderCompare(data,secs){
+  const names=data.methods.map(p=>p.method);
+  statusText.textContent=`${names.join(" vs ")} · ${secs}s`;
+  const picks={};                                 // design_id -> {method: rank}
+  (data.union||[]).forEach(u=>{picks[u.design_id]=u.picks;});
+  const grid=document.createElement("div");
+  grid.className="compare-grid";
+  grid.style.gridTemplateColumns=`repeat(${data.methods.length},1fr)`;
+  grid.innerHTML=data.methods.map(p=>{
+    const cards=p.results.map((r,i)=>{
+      const pk=picks[r.design_id]||{};
+      const others=names.filter(n=>n!==p.method);
+      const chips=others.map(n=> n in pk
+        ? `<span class="pick">${escapeHtml(n)} #${pk[n]}</span>`
+        : "").join("");
+      const only=others.every(n=>!(n in pk))
+        ? `<span class="pick only">${escapeHtml(p.method)}만 발견</span>`:"";
+      return cardHtml(r,i,`<div class="pickrow">${only}${chips}</div>`);
+    }).join("");
+    return `<div class="cmp-col">
+      <div class="cmp-col-head"><b>${escapeHtml(p.method)}</b><span>${p.results.length}건</span></div>
+      <div class="cards">${cards}</div>
+    </div>`;
+  }).join("");
+  results.innerHTML="";results.appendChild(grid);
+  grid.querySelectorAll(".thumb[data-design]").forEach(t=>
     t.addEventListener("click",()=>openDesign(t.dataset.design)));
 }
 
