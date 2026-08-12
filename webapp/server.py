@@ -272,14 +272,18 @@ def _locarno_names(code):
     return {"en": "Unclassified", "ko": "미분류 / 기타"}
 
 
-def _locarno_facets_pool(method, qvec, topn=10, pool=200):
-    """유사도 상위 pool개 도면에서 로카르노를 '유사도 가중합'으로 랭킹 → top-N."""
-    idx = METHODS[method]["index"]
-    p = min(pool, idx.ntotal)
-    scores, idxs = idx.search(qvec.astype("float32"), p)
+def _locarno_facets_from(idxs, scores, topn=10, pool=200):
+    """검색 결과 풀(상위 pool개)에서 로카르노를 '점수 가중합'으로 랭킹 → top-N.
+
+    별도의 이미지 유사도 검색을 다시 돌리지 않고 결과와 같은 풀·같은 점수를 쓴다 -
+    개념 강도(alpha)로 재정렬된 검색에서 분포 패널만 순수 이미지 기준이면 화면의
+    결과와 분포가 서로 다른 것을 세게 된다.
+    """
+    idxs = np.asarray(idxs).reshape(-1)[:pool]
+    scores = np.asarray(scores).reshape(-1)[:pool]
     meta = STATE["meta"]
-    agg = {}                                        # code -> [유사도합, 도면수]
-    for s, i in zip(scores[0].tolist(), idxs[0].tolist()):
+    agg = {}                                        # code -> [점수합, 도면수]
+    for s, i in zip(scores.tolist(), idxs.tolist()):
         if i < 0:
             continue
         code = meta[i].get("locarno", "")
@@ -388,7 +392,7 @@ def _search_image_one(method, img, topk, category, alpha, tta, qe):
         sel_sc, sel_ids = index.search(qvec, pool)
         sel_ids, sel_sc = sel_ids[0], sel_sc[0]
 
-    facets = _locarno_facets_pool(method, img_vec)
+    facets = _locarno_facets_from(sel_ids, sel_sc)
     results = _group_pack(sel_ids, sel_sc, int(topk))
     return {"method": method, "count": len(results),
             "predicted_labels": predicted, "used_category": used_cat, "alpha": alpha,
@@ -400,7 +404,7 @@ def _search_text_one(method, query, topk):
     vec = _encode_text_query(method, query)
     pool = min(max(int(topk) * 12, 120), index.ntotal)
     scores, idxs = index.search(vec, pool)
-    facets = _locarno_facets_pool(method, vec)
+    facets = _locarno_facets_from(idxs[0], scores[0])
     results = _group_pack(idxs[0], scores[0], int(topk))
     return {"method": method, "count": len(results), "query": query,
             "results": results, "locarno_facets": facets}
