@@ -177,11 +177,12 @@ outputs/methods/<name>/
 | (선택) `pk-only` | PK만, 마스킹 없이 | 유해 상호작용 실증 |
 | (선택) `all-mlp` / `all-proj` / `all-r32` | all + LoRA 확장 | ⑫ 계열, 최종 레시피 위 추가 기여 |
 | (선택) `loracap` | baseline + LoRA 용량 확장(rank 32, fc1/fc2, projection) | ⑫ 파라미터 용량 축의 단독 기여 (학습 파라미터 4.5배, 표에서 가장 비싼 arm) |
+| (선택) `bigbatch` | baseline + GradCache로 유효 네거티브 32 -> 256 | ⑩ 대조학습의 배치 크기 민감성 (VRAM 동일, 표본당 시간 1.4배) |
 
 `(선택)` 표시가 없는 행(`base`~`all`)만 `run_ablation.py`를 인자 없이 돌렸을 때 학습된다
 (= `DEFAULT_ARMS` + 항상 앞에 붙는 `base`). `(선택)` 행은 `--arms`로 이름을 적어야 돈다 —
-`hobit`·`tic`·`loracap`도 여기 속한다(각각 배치 구성 비용, 미검증 하이퍼파라미터,
-학습 파라미터 4.5배로 인한 VRAM·스텝 비용 때문).
+`hobit`·`tic`·`loracap`·`bigbatch`도 여기 속한다(각각 배치 구성 비용, 미검증 하이퍼파라미터,
+학습 파라미터 4.5배로 인한 VRAM·스텝 비용, 순전파 2회로 인한 시간 비용 때문).
 
 ```powershell
 python scripts\run_ablation.py --quick        # 스모크 (레코드 2000 × 1 epoch)
@@ -192,6 +193,7 @@ python scripts\run_ablation.py --epochs 3 --no-index   # 인덱스 빌드 생략
 python scripts\run_ablation.py --arms baseline hobit --epochs 3   # 배치 구성 단독 기여
 python scripts\run_ablation.py --arms baseline tic --epochs 3   # 손실 축 단독 기여
 python scripts\run_ablation.py --arms baseline loracap --epochs 3   # 파라미터 용량 축 단독 기여
+python scripts\run_ablation.py --arms baseline bigbatch --epochs 3   # 유효 네거티브 수 축 단독 기여
 ```
 
 - `hobit` arm은 다른 arm보다 비싸다: 에폭마다 학습 분할 전체(425,140장)를 1회 추론해
@@ -208,6 +210,19 @@ python scripts\run_ablation.py --arms baseline loracap --epochs 3   # 파라미�
   (0.28 → 0.53 s/step)다. batch_size를 줄여 VRAM을 맞추지 않은 이유는 in-batch 네거티브
   수까지 같이 줄어 Δ를 용량 축의 기여로 읽을 수 없게 되기 때문이다(해상도 축을 미룬 것과
   같은 이유).
+- `bigbatch` arm은 GradCache로 유효 네거티브를 32 -> 256으로 키운다(`batch_size`는 32
+  그대로, `grad_cache_chunks: 8`). 1패스는 `no_grad`로 청크별 임베딩만 모으고, 2패스는
+  청크별로 다시 순전파하며 1패스에서 얻은 임베딩 그래디언트를 주입한다. 활성값을 청크
+  하나 분량만 들고 있으면 되므로 VRAM이 늘지 않는다 - 실측(RTX 5090 31.84GiB, bf16,
+  224px, `--limit 3000`)에서 peak_reserved가 baseline 24.12GiB, bigbatch 24.10GiB로
+  사실상 같다. 대신 순전파가 두 번이라 비용이 시간으로 나온다: 옵티마이저 스텝당
+  0.31 -> 3.43초지만 한 스텝이 처리하는 표본이 8배(32 -> 256)라 표본당으로는 1.40배다
+  (9.6 -> 13.4ms). 순전파가 fwd+bwd의 약 1/3이라는 통념(+33%)과 맞는 값이다. 학습 분할
+  전체 기준 에폭당 약 1.1시간 -> 약 1.6시간.
+- `bigbatch`의 학습 손실은 baseline과 직접 비교하면 안 된다. InfoNCE는 후보 수의 로그에
+  비례해 커지므로(ln 256 = 5.55 vs ln 32 = 3.47) 같은 품질에서도 bigbatch 쪽이 크게
+  나온다. 실측 첫 스텝이 4.55(bigbatch) vs 2.27(baseline)인 것은 성능 차이가 아니다.
+  Δ는 반드시 검색 지표(R@K, mAP)로 읽는다.
 - 같은 이유로 `all-mlp`/`all-r32`도 batch 32에서 스필한다(fc1/fc2 활성값이 지배적).
   이 브랜치에서는 손대지 않았다 (후속 작업에서 같은 플래그를 켜면 된다).
 - 학습 1회가 오래 걸리므로 `--epochs 3`으로 좁힌 뒤, 유망한 조합만 풀 epoch 재학습 권장.
