@@ -496,6 +496,10 @@ def main():
 
     model.save_pretrained(os.path.join(t["output_dir"], "final"))
     print("saved LoRA adapter ->", t["output_dir"])
+    if device == "cuda":
+        # 조용한 VRAM 스필 감지용. loracap에서 peak 32.03GiB로 카드를 넘겨 크래시
+        # 없이 14배 느려진 전례가 있다 - 이 한 줄이 로그에 남으면 그 사고가 보인다.
+        print(f"[mem] peak_reserved={torch.cuda.max_memory_reserved()/1024**3:.2f}GiB")
 
 
 if __name__ == "__main__":

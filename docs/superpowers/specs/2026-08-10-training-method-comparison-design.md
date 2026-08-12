@@ -61,7 +61,7 @@ extends: configs/lora_clip.yaml
 data:
   builder: shared          # shared | (향후 korean, edge …)
   pairs: data/pairs.jsonl
-model: {}                  # hires384만 model_id/image_size 오버라이드
+model: {}                  # hires378만 model_id/image_size 오버라이드
 train:
   sampler: hobit           # random | pk | hobit
   hobit_pool: 4096
@@ -108,7 +108,7 @@ outputs/methods/<name>/
 | `hobit` | 배치 구성 | `src/dataset.py` 샘플러 | 필수 지정. §1.3 |
 | `tic` | 텍스트 모달 내부 대조 | `src/train.py` 손실 | 제목 중복 실측(141/28,859)이 이 데이터의 핵심 난점 |
 | `bigbatch` | 네거티브 수 | `src/train.py` GradCache | 대조학습의 배치 크기 민감성 |
-| `hires384` | 입력 해상도 | `model.model_id` + `image_size` | 라인 드로잉은 얇은 선이 정보의 전부 |
+| `hires378` | 입력 해상도 | `model.model_id` + `image_size` | 라인 드로잉은 얇은 선이 정보의 전부 |
 | `loracap` | 파라미터 용량 | `lora.*` | 저비용 용량 확장 |
 
 데이터는 5개 모두 `shared`다.
@@ -203,9 +203,9 @@ GradCache로 유효 배치를 32 → 256으로 확대한다. 두 번의 forward(
 `grad_cache_chunks: 8`로 유효 배치를 만든다. VRAM 실측(batch 64 = peak 37.5GB > 32GB)상
 물리 배치를 키우는 길은 막혀 있다.
 
-### 3.4 `hires384` / 3.5 `loracap`
+### 3.4 `hires378` / 3.5 `loracap`
 
-`hires384`는 `model_id`를 고해상도 변형으로, `image_size`를 그에 맞게 바꾼다. 임베딩 공간
+`hires378`은 `model_id`를 고해상도 변형으로, `image_size`를 그에 맞게 바꾼다. 임베딩 공간
 자체가 달라지므로 인덱스는 반드시 재빌드되며, 다른 방법과 백본을 공유할 수 없다 (§4.1).
 
 > **반드시 `huge-378`을 쓴다.** `configs/lora_clip.yaml` 주석은 `s16-384`도 후보로 적고
@@ -218,6 +218,12 @@ GradCache로 유효 배치를 32 → 256으로 확대한다. 두 번의 forward(
 
 `loracap`은 `target_modules`에 `fc1,fc2` 추가, `train_projections: true`, `r: 32`/`alpha: 64`.
 
+> **구현 확정(2026-08-12)**: 등록명은 `hires378`. 378은 토큰 2.85배(729 vs 256)라 batch 32가
+> VRAM에 들어가지 않으므로 `batch_size: 8` + `grad_cache_chunks: 4`로 유효 네거티브 32를
+> 유지한다(`bigbatch`의 GradCache 재사용). 물리 배치만 낮추면 네거티브 수 축이 함께 바뀌어
+> `bigbatch`와 기여도가 섞이기 때문이다. 유효 배치 곱의 보존은 테스트로 고정했다.
+
+
 ---
 
 ## 4. 서빙
@@ -227,7 +233,7 @@ GradCache로 유효 배치를 32 → 256으로 확대한다. 두 번의 forward(
 `hobit`/`tic`/`bigbatch`/`loracap`은 `model_id`가 같으므로 **베이스 백본 하나를 공유**하고
 PeftModel의 named adapter로 `set_adapter(name)` 전환한다. 현재 `load_tuned(merge=True)`는
 어댑터를 백본에 병합하므로 다중 어댑터와 양립하지 않는다 — 비교 서버에서는
-`merge=False` 경로를 쓴다. `hires384`만 `model_id`가 달라 별도 백본을 올린다.
+`merge=False` 경로를 쓴다. `hires378`만 `model_id`가 달라 별도 백본을 올린다.
 
 ### 4.2 RAM 예산
 
@@ -333,7 +339,7 @@ GET  /api/methods        → 활성/미생성 방법 목록과 각 지표
   `config.resolved.yaml` 산출. 테스트 동반.
 - **Phase 2 — 인덱스 파이프라인**: 러너에 인덱스 빌드 단계 추가, `index_meta.json` 기록,
   부분집합 `data/subset_100k.jsonl` 생성기.
-- **Phase 3 — 방법 구현**: `hobit` → `tic` → `bigbatch` → `loracap` → `hires384`.
+- **Phase 3 — 방법 구현**: `hobit` → `tic` → `bigbatch` → `loracap` → `hires378`.
   각 방법은 독립이므로 순서를 바꿔도 되고, HOBIT을 먼저 해서 파이프라인을 검증한다.
 - **Phase 4 — 서빙**: 다중 어댑터 적재, RAM 절감(중복 캐시 제거·meta 공유),
   `/api/search_multi`, 부분 가용성.

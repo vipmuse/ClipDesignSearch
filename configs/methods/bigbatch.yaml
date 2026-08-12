@@ -1,7 +1,7 @@
 name: bigbatch
 description: "GradCache로 유효 네거티브 32 -> 256 (baseline + 네거티브 수 축만 변경)"
 extends: configs/lora_clip.yaml
-data: {builder: shared, pairs: data/pairs.jsonl}
+data: {builder: shared, pairs: data/subset_100k.jsonl}
 train:
   grad_cache_chunks: 8
   pk_views: 1

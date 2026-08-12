@@ -1,7 +1,7 @@
 name: hobit
 description: "에폭마다 submodular greedy 재정렬로 배치 구성 (baseline + 배치 구성 축만 변경)"
 extends: configs/lora_clip.yaml
-data: {builder: shared, pairs: data/pairs.jsonl}
+data: {builder: shared, pairs: data/subset_100k.jsonl}
 train:
   sampler: hobit
   hobit_pool: 4096
