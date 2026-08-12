@@ -143,11 +143,26 @@ ViT-H forward 27.9분**. 디코딩이 비용의 78%라 학습 로더와 같은 `
 `--force`가 필수다. 어댑터·평가·인덱스 세 스킵 검사를 모두 우회한다. 붙이지 않으면
 위 스모크 산출물을 학습 완료로 보고 건너뛰어 **조용히 틀린 표**가 나온다.
 
-```powershell
-# 10만 부분집합 (권장 시작점)
-python scripts\run_ablation.py --arms baseline hobit tic loracap bigbatch `
-  --data data\subset_100k.jsonl --epochs 3 --force
+**학습 데이터는 CLI로 못 바꾼다.** `run_ablation.py`에 `--data` 같은 플래그는 없고, 각
+메서드 YAML의 `data.pairs`가 `train.data_path`를 정한다(`src/registry.py:80-86`). 방법
+하나가 YAML 한 장으로 완결되도록 한 설계다. 부분집합으로 돌리려면 5개 YAML의 한 줄을
+바꾼다:
+
+```yaml
+# configs/methods/{baseline,hobit,tic,loracap,bigbatch}.yaml
+data: {builder: shared, pairs: data/subset_100k.jsonl}
 ```
+
+```powershell
+python scripts\run_ablation.py --arms baseline hobit tic loracap bigbatch --epochs 3 --force
+```
+
+`--limit 100000`으로 대신할 수도 있지만 **같은 것이 아니다.** `--limit`은
+`data/pairs.jsonl` 전체를 seed 고정 셔플한 뒤 앞에서 자른다(`src/dataset.py:30`).
+도면 단위 무작위 표본이라 같은 디자인의 여러 뷰가 경계에서 갈리고, 로카르노 분포도
+원본을 그대로 따라간다. 반면 `data/subset_100k.jsonl`은 **디자인 단위로 로카르노 층화
+추출**해 만든 것이라(13,002 디자인, 희귀 코드마다 최소 1개 보장) 소수 클래스가
+살아남는다. 방법 비교에는 후자가 맞다.
 
 ### 시간 추정
 
