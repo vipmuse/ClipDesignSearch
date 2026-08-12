@@ -336,7 +336,19 @@ function rerun(){
   if(lastQuery.type==="image"&&picked) imageSearch(activeCat);
   else if(lastQuery.type==="text") textSearch(lastQuery.q);
 }
-loadMethods();
+// URL 파라미터로 자동 검색: ?q=chair&method=loracap 또는 ?q=bottle&compare=1
+// 공유 링크·스크린샷용. compare=1이면 비교 모드(전체 방법)로 연다.
+async function initFromUrl(){
+  await loadMethods();
+  const u=new URLSearchParams(location.search);
+  if(u.get("method")&&METHODS_INFO.some(m=>m.name===u.get("method"))){
+    methodSel.value=u.get("method"); updateDesc();
+  }
+  if(u.get("compare")==="1"){ cmpMode=true; cmpToggle.classList.add("on");
+    cmpList.classList.add("open"); paintChips(); }
+  if(u.get("q")) textSearch(u.get("q"));
+}
+initFromUrl();
 
 clearBtn.addEventListener("click",()=>{
   picked=null;file.value="";preview.style.display="none";searchBtn.disabled=true;
