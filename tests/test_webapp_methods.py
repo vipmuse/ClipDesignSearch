@@ -39,7 +39,7 @@ def test_parse_methods는_중복을_제거하고_상한을_지킨다(monkeypatch
     assert server._parse_methods("", "loracap, hires378,loracap") == \
         ["loracap", "hires378"]                                             # 중복 제거
     got = server._parse_methods("", "loracap,hires378,baseline,hobit,tic")
-    assert len(got) == 4, "비교는 최대 4개"
+    assert len(got) == 5, "7개 arm 전체 비교를 허용한다 (상한 8)"
     with pytest.raises(HTTPException):
         server._parse_methods("없는방법", "")
 
