@@ -1,0 +1,3 @@
+https://github.com/360CVGroup/FG-CLIP
+https://github.com/WeChatCV/ObjEmbed
+https://github.com/Sweet4tars/seps
