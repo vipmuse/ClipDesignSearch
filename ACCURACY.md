@@ -223,6 +223,14 @@ python scripts\run_ablation.py --arms baseline bigbatch --epochs 3   # 유효 �
   비례해 커지므로(ln 256 = 5.55 vs ln 32 = 3.47) 같은 품질에서도 bigbatch 쪽이 크게
   나온다. 실측 첫 스텝이 4.55(bigbatch) vs 2.27(baseline)인 것은 성능 차이가 아니다.
   Δ는 반드시 검색 지표(R@K, mAP)로 읽는다.
+- `bigbatch` 브랜치가 남긴 후속 항목 셋. (1) `outputs/methods/baseline`은 어댑터
+  (`final`/`epoch0`)와 평가/인덱스가 서로 다른 학습을 가리킨다 - 실전 ablation은
+  `--force`로 돌려야 한다(어댑터·평가·인덱스 세 스킵 검사를 모두 우회). (2)
+  `configs/lora_clip.yaml`에 `grad_cache_chunks`가 생기면서 이 키가 없는 기존
+  저장본(`hobit`·`tic`·`loracap`)에 `!!` drift 경고가 뜬다 - 동작은 안 바뀌지만
+  진짜 drift와 구분이 안 되는 노이즈다. (3) `cached_grads`의 img2img/tic 경로는
+  테스트가 없다 - `bigbatch`는 둘 다 0이라 지금은 무해하지만, 다른 arm 위에
+  `grad_cache_chunks`를 얹으면 검증 공백이 된다.
 - 같은 이유로 `all-mlp`/`all-r32`도 batch 32에서 스필한다(fc1/fc2 활성값이 지배적).
   이 브랜치에서는 손대지 않았다 (후속 작업에서 같은 플래그를 켜면 된다).
 - 학습 1회가 오래 걸리므로 `--epochs 3`으로 좁힌 뒤, 유망한 조합만 풀 epoch 재학습 권장.
