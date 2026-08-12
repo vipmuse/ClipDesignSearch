@@ -1,0 +1,18 @@
+name: hobit2
+description: "HOBIT 논문 재현 - 크로스모달 hardness에서 near-positive를 감점(lambda 1.0)하는 LSE greedy 배치 구성 (baseline + 배치 구성 축만 변경)"
+extends: configs/lora_clip.yaml
+data: {builder: shared, pairs: data/subset_100k.jsonl}
+train:
+  sampler: hobit2
+  # 논문 Alg 2와 민감도 실험(Fig 4)의 값: 시드 = 배치의 1/4, 시드당 후보 top-200,
+  # lambda 1.0 (near-positive 감점 최대), 페널티는 기존 hobit과 동일한 라벨 안전장치.
+  hobit_topk: 200
+  hobit_lambda: 1.0
+  hobit_seed_frac: 0.25
+  hobit_penalty: 10.0
+  hobit_refresh_every: 1
+  pk_views: 1
+  locarno_aware: false
+  mask_false_negatives: false
+  augment: false
+  img2img_weight: 0.0
