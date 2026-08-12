@@ -222,3 +222,24 @@ def test_loracap은_손실과_배치_구성_축을_건드리지_않는다():
     c = registry.resolve("loracap")["train"]
     assert c.get("tic_weight", 0.0) == 0.0
     assert c.get("sampler", "random") != "hobit"
+
+
+def test_bigbatch은_baseline과_grad_cache_chunks만_다르다():
+    """네거티브 수 축 하나만 바뀌어야 Δ가 그 기여로 읽힌다."""
+    c = registry.resolve("bigbatch")
+    b = registry.resolve("baseline")
+    exempt = ("output_dir", "grad_cache_chunks")
+    ct = {k: v for k, v in c["train"].items() if k not in exempt}
+    bt = {k: v for k, v in b["train"].items() if k not in exempt}
+    assert ct == bt, f"train 블록에 다른 축이 섞였다: {set(ct.items()) ^ set(bt.items())}"
+    assert c["lora"] == b["lora"], "용량 축은 loracap의 몫"
+    assert c["model"] == b["model"], "해상도 축은 hires378의 몫"
+
+
+def test_bigbatch은_batch_size를_바꾸지_않는다():
+    """batch_size를 키우면 VRAM이 터지고, 줄이면 청크 수와 상쇄돼 축이 흐려진다.
+    유효 배치는 오직 grad_cache_chunks로만 만든다."""
+    c = registry.resolve("bigbatch")["train"]
+    b = registry.resolve("baseline")["train"]
+    assert c["batch_size"] == b["batch_size"]
+    assert c["grad_cache_chunks"] > 1 and b["grad_cache_chunks"] == 1
