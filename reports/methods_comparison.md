@@ -1,5 +1,10 @@
 # 학습 방법 비교: 현재까지의 실험 결과
 
+> **갱신(2026-08-12)**: 이 문서의 "검색 성능 비교는 아직 측정되지 않았다"는 서술은
+> 해소됐다. 6개 arm × 3에폭의 10만 부분집합 실전 결과는
+> [ablation_subset100k.md](ablation_subset100k.md)를 보라. 학습 비용 실측과
+> Δ 해석 주의(6장)는 이 문서가 계속 유효하다.
+
 - 작성 2026-08-12 · 대상 커밋 `ec6f9ff` (main)
 - 비교 구조 설계: `docs/superpowers/specs/2026-08-10-training-method-comparison-design.md`
 - 운영 문서: `ACCURACY.md`
